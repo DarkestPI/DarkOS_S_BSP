@@ -9,6 +9,8 @@ bsp_load "${1:-}" "${2:-}" "${3:-}"
 ACTION=${4:-build}
 case "$ACTION" in build|clean|--dry-run|configure|menuconfig) ;; *) bsp_die "不支持的 rootfs 操作 $ACTION" ;; esac
 BUILD_DIR="$OUTPUT_DIR/rootfs"
+bsp_source rootfs
+SRC_BUILDROOT="$SOURCE_DIR"
 if [ "$ACTION" = clean ]; then
     # 删除当前 rootfs 构建目录和汇总镜像，保留共享下载缓存及其他组件。
     rm -rf "$BUILD_DIR"
@@ -25,9 +27,11 @@ if [ "$ACTION" = --dry-run ]; then
 fi
 # ========== 3. 准备分层链接和 Buildroot 构建参数 ==========
 # 下载缓存可由 BR2_DL_DIR 指定；默认在 output/downloads 中供所有目标复用。
+bsp_check_rootfs_source "$SRC_BUILDROOT" "$BUILD_DIR"
 mkdir -p "$BUILD_DIR" "$IMAGES_DIR" "$LOGS_DIR" "$BSP_ROOT/output/downloads"
 bsp_prepare_external
-ARGS=(-C "$BSP_ROOT/sources/buildroot" O="$BUILD_DIR" BR2_EXTERNAL="$BR2_EXT"
+export GIT_OPTIONAL_LOCKS=0
+ARGS=(-C "$SRC_BUILDROOT" O="$BUILD_DIR" BR2_EXTERNAL="$BR2_EXT"
     DARKOS_BSP_TARGET="$TARGET" BR2_DL_DIR="${BR2_DL_DIR:-$BSP_ROOT/output/downloads}")
 configure_rootfs() {
     # ========== 4. 从板级模板生成本机可用的 rootfs.defconfig ==========
@@ -48,7 +52,7 @@ configure_rootfs() {
         code=$(printf '#include <linux/version.h>\n' | "${CROSS_PREFIX}gcc" -E -dM -x c - | awk '$2 == "LINUX_VERSION_CODE" {print $3}')
         [[ "$code" =~ ^[0-9]+$ ]] || bsp_die "无法检测外部工具链的 Linux headers"
         headers="$((code >> 16))_$(((code >> 8) & 255))"
-        grep -q "^config BR2_TOOLCHAIN_EXTERNAL_HEADERS_$headers$" "$BSP_ROOT/sources/buildroot/toolchain/toolchain-external/toolchain-external-custom/Config.in.options" || bsp_die "Buildroot 不支持 headers $headers"
+        grep -q "^config BR2_TOOLCHAIN_EXTERNAL_HEADERS_$headers$" "$SRC_BUILDROOT/toolchain/toolchain-external/toolchain-external-custom/Config.in.options" || bsp_die "Buildroot 不支持 headers $headers"
         # 4.3 用实际版本替换模板声明，避免 Buildroot 的工具链检查拒绝构建。
         sed -i '/^BR2_TOOLCHAIN_EXTERNAL_GCC_[0-9]/d; /^BR2_TOOLCHAIN_EXTERNAL_HEADERS_[0-9]/d' "$generated"
         printf '\nBR2_TOOLCHAIN_EXTERNAL_PATH="%s"\nBR2_TOOLCHAIN_EXTERNAL_CUSTOM_PREFIX="%s"\nBR2_TOOLCHAIN_EXTERNAL_GCC_%s=y\nBR2_TOOLCHAIN_EXTERNAL_HEADERS_%s=y\n' \

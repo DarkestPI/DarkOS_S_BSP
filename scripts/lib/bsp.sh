@@ -48,10 +48,67 @@ MAKE
         "$BSP_ROOT/vendors/$VENDOR/$SOC" "$BOARD_DIR")
 }
 
+# 源码目录可以按目标选择；相对路径始终相对于工程根目录。
+bsp_source() {
+    local stage=$1 requested
+    case "$stage" in
+        kernel) requested=${KERNEL_SOURCE_DIR:-${BSP_KERNEL_SOURCE_DIR:-sources/linux}} ;;
+        uboot) requested=${UBOOT_SOURCE_DIR:-${BSP_UBOOT_SOURCE_DIR:-sources/u-boot}} ;;
+        rootfs) requested=${BUILDROOT_SOURCE_DIR:-${BSP_BUILDROOT_SOURCE_DIR:-sources/buildroot}} ;;
+        *) bsp_die "未知源码组件 $stage" ;;
+    esac
+    [[ "$requested" = /* ]] || requested="$BSP_ROOT/$requested"
+    SOURCE_DIR=$(realpath -m "$requested")
+}
+
+# 只读取源码根目录自身的 Git 数据，避免把无 Git 的源码当成主仓库。
+bsp_source_revision() {
+    if [ -e "$1/.git" ]; then
+        git -C "$1" rev-parse HEAD 2>/dev/null || printf 'unknown\n'
+    else
+        printf 'unversioned\n'
+    fi
+}
+
+# config 是只读入口，显示继承后的值和构建实际使用的文件。
+bsp_print_config() {
+    local name stage file
+    echo "配置层: ${LAYERS[*]}"
+    while IFS= read -r name; do
+        printf '%s=%s\n' "$name" "${!name}"
+    done < <(compgen -A variable BSP_ | sort)
+    printf 'OUTPUT_DIR=%s\n' "$OUTPUT_DIR"
+    for stage in kernel uboot rootfs; do
+        bsp_source "$stage"
+        printf '%s source=%s\n' "$stage" "$SOURCE_DIR"
+        printf '%s commit=%s\n' "$stage" "$(bsp_source_revision "$SOURCE_DIR")"
+    done
+    for stage in linux uboot; do
+        bsp_collect "$stage"
+        for file in "${PATCH_FILES[@]}"; do printf '%s patch=%s\n' "$stage" "$file"; done
+        for file in "${CONFIG_FRAGMENTS[@]}"; do printf '%s fragment=%s\n' "$stage" "$file"; done
+    done
+    printf 'BL31=%s\nROCKCHIP_TPL=%s\n' \
+        "${BL31:-${BSP_UBOOT_BL31:-}}" "${ROCKCHIP_TPL:-${BSP_UBOOT_TPL:-}}"
+}
+
 # 校验普通组件支持的操作，防止未知动作被当成构建或清理执行。
 bsp_action() {
     ACTION=${1:-build}
     case "$ACTION" in build|clean|--dry-run) ;; *) bsp_die "不支持的操作 $ACTION" ;; esac
+}
+
+# 优先使用系统依赖；本机验证时下载到 output 的工具可作为隔离后备。
+bsp_host_tools() {
+    local sysroot="$BSP_ROOT/output/host-tools/sysroot"
+    if ! command -v swig >/dev/null && [ -x "$sysroot/usr/bin/swig" ]; then
+        export PATH="$sysroot/usr/bin:$PATH"
+        export SWIG_LIB="${SWIG_LIB:-$sysroot/usr/share/swig4.0}"
+    fi
+    if ! python3 -c 'import elftools' >/dev/null 2>&1 &&
+        [ -d "$sysroot/usr/lib/python3/dist-packages/elftools" ]; then
+        export PYTHONPATH="$sysroot/usr/lib/python3/dist-packages${PYTHONPATH:+:$PYTHONPATH}"
+    fi
 }
 
 # 按组件选择交叉编译器并检查最低版本；结果写入 CROSS_PREFIX/CROSS_VERSION。
@@ -98,15 +155,34 @@ bsp_toolchain() {
 
 # 收集组件补丁和实际存在的配置片段，输出 PATCH_FILES/CONFIG_FRAGMENTS 数组。
 bsp_collect() {
-    local component=$1 layer f fragment
+    local component=$1 layer f fragment suffix patch_var fragment_var
+    local patch_dirs=() fragments=()
     PATCH_FILES=(); CONFIG_FRAGMENTS=()
-    for layer in "${LAYERS[@]}"; do
-        # 1. 按四层顺序遍历；同层 *.patch 按 shell 文件名顺序收集。
+    case "$component" in
+        linux) suffix=LINUX ;;
+        uboot) suffix=UBOOT ;;
+        *) bsp_die "未知补丁组件 $component" ;;
+    esac
+    patch_var="BSP_PATCH_DIRS_$suffix"
+    fragment_var="BSP_FRAGMENTS_$suffix"
+    # 未声明时使用四层约定；显式空列表表示禁用该项。
+    if [[ -v "$patch_var" ]]; then
+        read -r -a patch_dirs <<< "${!patch_var}"
+    else
+        for layer in "${LAYERS[@]}"; do patch_dirs+=("$layer/patches/$component"); done
+    fi
+    for layer in "${patch_dirs[@]}"; do
+        [[ "$layer" = /* ]] || layer="$BSP_ROOT/$layer"
         [ -d "$layer" ] || continue
         shopt -s nullglob
-        for f in "$layer/patches/$component/"*.patch; do PATCH_FILES+=("$f"); done
+        for f in "$layer/"*.patch; do PATCH_FILES+=("$f"); done
         shopt -u nullglob
-        # 2. Linux 片段按层命名；U-Boot 各层统一使用 uboot.fragment。
+    done
+    if [[ -v "$fragment_var" ]]; then
+        read -r -a fragments <<< "${!fragment_var}"
+    else
+    for layer in "${LAYERS[@]}"; do
+        # Linux 片段按层命名；U-Boot 各层统一使用 uboot.fragment。
         case "$component" in
             linux)
                 case "$layer" in
@@ -117,15 +193,30 @@ bsp_collect() {
                 esac ;;
             uboot) fragment=uboot.fragment ;;
         esac
-        [ ! -f "$layer/configs/$fragment" ] || CONFIG_FRAGMENTS+=("$layer/configs/$fragment")
+        fragments+=("$layer/configs/$fragment")
+    done
+    fi
+    for f in "${fragments[@]}"; do
+        [[ "$f" = /* ]] || f="$BSP_ROOT/$f"
+        if [[ -v "$fragment_var" ]]; then
+            [ -f "$f" ] || bsp_die "缺少显式配置片段 $f"
+        fi
+        [ ! -f "$f" ] || CONFIG_FRAGMENTS+=("$f")
     done
 }
 
 # 为一个目标准备源码副本：首次 rsync，已有 Makefile 时复用以保留增量构建。
 bsp_copy_source() {
     local src=$1 dest=$2
+    local stamp
     [ -d "$src" ] || bsp_die "找不到源码 $src"
+    stamp=$(printf '%s\n%s\n' "$(realpath "$src")" "$(bsp_source_revision "$src")")
     if [ -f "$dest/Makefile" ]; then
+        [ -f "$dest/.darkos-source" ] || bsp_die "旧构建副本没有源码记录，请先 clean 对应组件: $dest"
+        if [ -f "$dest/.darkos-source" ] && [ "$(cat "$dest/.darkos-source")" != "$stamp" ]; then
+            bsp_die "源码路径或提交已变化，请先 clean 对应组件: $dest"
+        fi
+        printf '%s\n' "$stamp" > "$dest/.darkos-source"
         echo "复用构建目录: ${dest#"$BSP_ROOT"/}（更新源码或补丁后请 clean）"
         return
     fi
@@ -135,6 +226,20 @@ bsp_copy_source() {
     rsync -a --exclude=.git --exclude=.config --exclude='*.o' --exclude='*.a' \
         --exclude='*.ko' --exclude='*.mod' --exclude='*.cmd' --exclude='*.tmp' \
         --exclude=modules.order --exclude=Module.symvers "$src/" "$dest/"
+    printf '%s\n' "$stamp" > "$dest/.darkos-source"
+}
+
+# Buildroot 使用共享源码和 O=；版本变化同样需要清理旧 package stamp。
+bsp_check_rootfs_source() {
+    local src=$1 dest=$2 stamp
+    [ -f "$src/Makefile" ] || bsp_die "找不到 Buildroot 源码 $src"
+    stamp=$(printf '%s\n%s\n' "$(realpath "$src")" "$(bsp_source_revision "$src")")
+    if [ -f "$dest/.config" ]; then
+        [ -f "$dest/.darkos-source" ] || bsp_die "旧 rootfs 输出没有源码记录，请先 clean rootfs"
+        [ "$(cat "$dest/.darkos-source")" = "$stamp" ] || bsp_die "Buildroot 源码路径或提交已变化，请先 clean rootfs"
+    fi
+    mkdir -p "$dest"
+    printf '%s\n' "$stamp" > "$dest/.darkos-source"
 }
 
 # 对副本应用补丁：正向试运行成功才应用；反向成功表示已应用，可以跳过。

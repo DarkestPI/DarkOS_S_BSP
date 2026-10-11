@@ -1,0 +1,17 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+
+// 共用 SoC bootph/binman 描述来自锁定的主线 U-Boot。
+#include "rk3588s-u-boot.dtsi"
+
+/ {
+	chosen {
+		// 首次开发优先使用 BootROM 当前介质，其次 SD，再次 eMMC。
+		u-boot,spl-boot-order = "same-as-spl", &sdmmc, &sdhci;
+	};
+};
+
+&sdhci {
+	// U-Boot 主线 RK3588 的 eMMC 启动路径需要 HS200。
+	cap-mmc-highspeed;
+	mmc-hs200-1_8v;
+};

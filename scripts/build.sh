@@ -15,16 +15,18 @@ usage() {
 命令:
   all          生成 br2-external，构建 U-Boot/内核/rootfs，然后打包（默认）
   prepare      仅生成基于符号链接的 br2-external
+  config       只读显示继承后的 BSP 配置、源码提交、补丁和配置片段
   configure    生成 br2-external 并加载 Buildroot 配置，不编译
   uboot        仅编译 U-Boot
   kernel       仅编译内核
   rootfs       仅编译 Buildroot rootfs
   menuconfig   打开 Buildroot 配置菜单
-  pack         生成 QEMU 启动脚本及校验文件
+  pack         调用当前平台的打包后端生成启动镜像及校验文件
   run          启动 QEMU（root 登录，空密码；Ctrl+A X 退出）
   test         启动 QEMU，验证登录、架构、网络接口并关机
   clean [uboot|kernel|rootfs|all]   清理所选目标或组件
 环境变量: JOBS、KERNEL_CROSS_COMPILE、UBOOT_CROSS_COMPILE、ROOTFS_CROSS_COMPILE
+          KERNEL_SOURCE_DIR、UBOOT_SOURCE_DIR、BUILDROOT_SOURCE_DIR、BL31、ROCKCHIP_TPL
 示例: ./build.sh qemu arm64 virt all
       ./build.sh qemu arm64 virt all --dry-run
 HELP
@@ -60,13 +62,20 @@ echo "DarkOS BSP: $VENDOR / $SOC / $BOARD — $COMMAND"
 # ========== 4. 定义分组件调用及完整构建顺序 ==========
 # 所有组件使用同一个目标；只有需要时才传递 --dry-run 参数。
 stage() { "$SCRIPT_DIR/$1" "$VENDOR" "$SOC" "$BOARD" ${DRY_RUN:+"$DRY_RUN"}; }
+pack_stage() {
+    local backend=${BSP_PACK_SCRIPT:-}
+    [ -n "$backend" ] || bsp_die "此目标未配置 BSP_PACK_SCRIPT 打包后端"
+    [[ "$backend" = /* ]] || backend="$BSP_ROOT/$backend"
+    [ -f "$backend" ] || bsp_die "找不到打包脚本 $backend"
+    bash "$backend" "$VENDOR" "$SOC" "$BOARD" ${DRY_RUN:+"$DRY_RUN"}
+}
 build_all() {
     # 准备 external -> U-Boot -> 内核 -> rootfs -> QEMU 启动镜像。
     stage prepare-external.sh
     stage build-uboot.sh
     stage build-kernel.sh
     stage build-rootfs.sh
-    [ "$VENDOR" != qemu ] || stage pack-qemu.sh
+    if [ -n "${BSP_PACK_SCRIPT:-}" ]; then pack_stage; fi
 }
 # ========== 5. 执行用户选择的操作 ==========
 case "$COMMAND" in
@@ -79,12 +88,13 @@ case "$COMMAND" in
         fi
         ;;
     prepare) stage prepare-external.sh ;;
+    config) bsp_print_config ;;
     configure) "$SCRIPT_DIR/build-rootfs.sh" "$VENDOR" "$SOC" "$BOARD" "${DRY_RUN:-configure}" ;;
     uboot) stage build-uboot.sh ;;
     kernel) stage build-kernel.sh ;;
     rootfs) stage build-rootfs.sh ;;
     menuconfig) "$SCRIPT_DIR/build-rootfs.sh" "$VENDOR" "$SOC" "$BOARD" "${DRY_RUN:-menuconfig}" ;;
-    pack) stage pack-qemu.sh ;;
+    pack) pack_stage ;;
     run) stage run-qemu.sh ;;
     test)
         # 实测时由 Python 驱动串口登录；dry-run 仅展示启动参数。

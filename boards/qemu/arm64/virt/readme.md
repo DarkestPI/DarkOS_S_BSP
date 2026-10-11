@@ -5,17 +5,38 @@
 `sources/buildroot`。QEMU 自动生成 DTB，无需板级 DTS、TF-A 或原厂固件。
 此目标使用内存中的 initramfs，关机后文件修改不会保留。
 
+## 配置职责
+
+`bsp.mk` 加载 `vendors/qemu/arm64/bsp.mk`，后者加载 QEMU 通用层及
+`common/bsp.mk`。共享源码位置、自动选择工具链和并发数由公共层提供；
+ARM64 层选择架构、工具链前缀及模拟器程序；本机器选择三套 defconfig、
+CPU 型号、内存、CPU 数、加载地址和启动命令行。各层默认值使用 `?=`，
+板级需要覆盖时使用 `:=`。
+
+内核的基础配置位于 `configs/darkos_qemu_arm64_defconfig`。PSCI 和 SMP
+由 ARM64 层提供；PL011 串口、Virtio 网络/块设备和 CPU 数上限由本目录的
+`configs/kernel.fragment` 提供。统一构建入口会按层合并这些配置；只执行
+基础 defconfig 并不包含全部机器设备配置。
+
+共享 Linux、U-Boot 和 Buildroot 的版本由 Git 子模块提交锁定。本目录不再
+重复记录源码版本、补丁路径、片段路径或输出目录。驱动及软件包以 Kconfig
+和 Buildroot 配置为准。
+
 ## 构建和启动
 
 在 BSP 根目录执行，也可以从其他目录用入口脚本的绝对路径执行：
 
 ```bash
 ./build.sh list
+./build.sh qemu arm64 virt config
 ./build.sh qemu arm64 virt all --dry-run
 ./build.sh qemu arm64 virt all
 ./build.sh qemu arm64 virt test
 ./build.sh qemu arm64 virt run
 ```
+
+`config` 只读显示继承后的 BSP 变量、实际源码目录和提交、补丁及配置片段，
+不创建输出目录。修改公共层或机器层后，可以先用它核对最终选择。
 
 登录名 `root`，空密码。本机 QEMU 串口按 `Ctrl+A`、`X` 退出；
 也可以在 guest 中执行 `poweroff`。这是本地开发环境，QEMU 使用 user 网络，
@@ -49,6 +70,11 @@ QEMU_MEMORY=256 QEMU_CPUS=1 ./build.sh qemu arm64 virt run
 ./build.sh qemu arm64 virt clean all
 ```
 
+`configure` 加载 Buildroot 配置但不编译；`menuconfig` 编辑 rootfs 配置。
+Linux 和 U-Boot 的基线分别在本目录对应的 defconfig 中维护，机器驱动在
+`kernel.fragment` 中维护。修改配置后再次构建对应组件会重新合并内核/U-Boot
+配置；补丁或共享源码变化则先清理对应源码副本。
+
 Buildroot 菜单修改保存在 `output/qemu_arm64_virt/rootfs/.config`。
 后续构建保留菜单修改；修改板级 defconfig 时重新加载它。需要持久保存时执行：
 
@@ -58,6 +84,9 @@ make -C sources/buildroot O="$PWD/output/qemu_arm64_virt/rootfs" \
 ```
 
 工具链变更需要 `clean rootfs`；更新内核/U-Boot 源码或补丁后清理对应组件。
+各组件输出的 `.darkos-source` 记录实际源码路径和提交；没有该记录的历史
+输出也需要先清理对应组件再构建。QEMU 的 `run`/`test` 可以使用现有已打包
+镜像，但构建时不会把没有来源记录的旧副本当成新源码的结果。
 `clean kernel`、`clean uboot`、`clean rootfs` 仅清理该目标的相应组件；
 其他板子的输出和共享下载缓存不会删除。
 
@@ -86,7 +115,8 @@ ROOTFS_CROSS_COMPILE=/path/to/rootfs-toolchain/bin/aarch64-linux-gnu- \
 其他原厂平台可以在自身 `bsp.mk` 中使用 `BSP_KERNEL_CROSS_COMPILE`、
 `BSP_UBOOT_CROSS_COMPILE` 和 `BSP_ROOTFS_CROSS_COMPILE`。
 对于使用 musl/uClibc、内部工具链或复杂原厂 SDK 的平台，应编写对应的
-Buildroot defconfig，不启用 QEMU 的 `BSP_ROOTFS_EXTERNAL_AUTO`。
+Buildroot defconfig，并在目标配置中设置 `BSP_ROOTFS_EXTERNAL_AUTO := n`，
+覆盖公共层的默认自动检测策略。
 
 首次 Buildroot 构建需要下载依赖并检查其 hash；共享缓存位于
 `output/downloads/`，也可通过 `BR2_DL_DIR` 指定已有缓存。

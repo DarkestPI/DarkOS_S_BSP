@@ -11,7 +11,8 @@ set -eo pipefail
 source "$(dirname "$0")/lib/bsp.sh"
 bsp_load "${1:-}" "${2:-}" "${3:-}"
 bsp_action "${4:-build}"
-SRC_KERNEL="$BSP_ROOT/sources/linux"
+bsp_source kernel
+SRC_KERNEL="$SOURCE_DIR"
 BUILD_DIR="$OUTPUT_DIR/kernel"
 LOG_FILE="$LOGS_DIR/kernel.log"
 
@@ -24,7 +25,11 @@ if [ "$ACTION" = "clean" ]; then
 fi
 [ -d "$SRC_KERNEL" ] || bsp_die "找不到内核源码 $SRC_KERNEL"
 DEFCONFIG=${BSP_DEFCONFIG:-defconfig}
-MIN_GCC=$(ARCH="$ARCH" "$SRC_KERNEL/scripts/min-tool-version.sh" gcc)
+if [ -x "$SRC_KERNEL/scripts/min-tool-version.sh" ]; then
+    MIN_GCC=$(ARCH="$ARCH" "$SRC_KERNEL/scripts/min-tool-version.sh" gcc)
+else
+    MIN_GCC=${BSP_KERNEL_MIN_GCC:-8.1.0}
+fi
 # 最低版本由当前内核源码决定，再由公共函数选择或校验工具链。
 bsp_toolchain kernel "$MIN_GCC"
 CROSS_COMPILE=$CROSS_PREFIX
@@ -36,36 +41,11 @@ CROSS_GCC_VER="$("${CROSS_COMPILE}gcc" --version 2>/dev/null || true)"
 CROSS_GCC_VER=${CROSS_GCC_VER%%$'\n'*}
 CROSS_GCC_VER=${CROSS_GCC_VER:-未找到工具链}
 
-PATCH_LIST=()
-# 枚举四层补丁供面板展示和后续应用，同层按文件名排序。
-PATCH_DIRS=(
-    "$BSP_ROOT/common/patches/linux"
-    "$BSP_ROOT/vendors/$VENDOR/common/patches/linux"
-    "$BSP_ROOT/vendors/$VENDOR/$SOC/patches/linux"
-    "$BOARD_DIR/patches/linux"
-)
-for dir in "${PATCH_DIRS[@]}"; do
-    [ -d "$dir" ] || continue
-    for p in $(ls "$dir"/*.patch 2>/dev/null | sort); do
-        PATCH_LIST+=("$(realpath --relative-to="$BSP_ROOT" "$p")")
-    done
-done
-
-FRAGMENT_LIST=()
-# 片段展示用相对路径，实际合并使用绝对路径；不存在的片段不参与合并。
-FRAGMENT_FILES=()
-FRAGMENT_CANDIDATES=(
-    "$BSP_ROOT/common/configs/common.fragment"
-    "$BSP_ROOT/vendors/$VENDOR/common/configs/${VENDOR}.fragment"
-    "$BSP_ROOT/vendors/$VENDOR/$SOC/configs/${SOC}.fragment"
-    "$BOARD_DIR/configs/kernel.fragment"
-)
-for f in "${FRAGMENT_CANDIDATES[@]}"; do
-    if [ -f "$f" ]; then
-        FRAGMENT_LIST+=("$(realpath --relative-to="$BSP_ROOT" "$f")")
-        FRAGMENT_FILES+=("$f")
-    fi
-done
+# 展示和构建共用同一份收集结果，显式列表覆盖四层默认规则。
+bsp_collect linux
+PATCH_LIST=("${PATCH_FILES[@]}")
+FRAGMENT_LIST=("${CONFIG_FRAGMENTS[@]}")
+FRAGMENT_FILES=("${CONFIG_FRAGMENTS[@]}")
 
 # 颜色
 C_BOLD="\033[1m"
@@ -93,7 +73,7 @@ echo -e "    version      ${KERNEL_VERSION}"
 echo -e "    branch       ${KERNEL_BRANCH}"
 echo -e "    defconfig    ${DEFCONFIG}"
 echo -e "    jobs         ${JOBS}"
-echo -e "    source       sources/linux"
+echo -e "    source       ${SRC_KERNEL#"$BSP_ROOT"/}"
 echo -e "    output       output/${VENDOR}_${SOC}_${BOARD}"
 echo ""
 
@@ -133,59 +113,32 @@ mkdir -p "$OUTPUT_DIR" "$IMAGES_DIR" "$LOGS_DIR"
 # ========== 1. 拷贝源码 ==========
 echo ""
 echo ">>> [1/5] 拷贝内核源码"
-if [ -d "$BUILD_DIR" ]; then
-    # 复用副本与编译缓存；原始源码或补丁更新后需要先清理此组件。
-    echo "    已存在，跳过拷贝（clean 后重来）"
-else
-    rsync -a --delete \
-        --exclude='.git' --exclude='.config' \
-        --exclude='*.o' --exclude='*.a' --exclude='*.ko' \
-        --exclude='*.mod' --exclude='*.cmd' --exclude='*.tmp' \
-        --exclude='modules.order' --exclude='Module.symvers' \
-        "$SRC_KERNEL/" "$BUILD_DIR/"
-    echo "    拷贝完成: $BUILD_DIR"
-fi
+bsp_copy_source "$SRC_KERNEL" "$BUILD_DIR"
 
 cd "$BUILD_DIR"
 
 # ========== 2. 应用补丁 ==========
 echo ""
 echo ">>> [2/5] 应用补丁"
-apply_patch() {
-    # 先检查正向应用；若反向可应用，说明补丁已存在于副本中。
-    local p=$1
-    if patch -p1 --forward --dry-run < "$p" >/dev/null 2>&1; then
-        patch -p1 --forward < "$p"
-        echo "    ✔ $(basename "$p")"
-    elif patch -p1 --reverse --dry-run < "$p" >/dev/null 2>&1; then
-        echo "    ↷ 已应用，跳过: $(basename "$p")"
-    else
-        echo "    ✘ 失败: $(basename "$p")"
-        return 1
-    fi
-}
-for dir in "${PATCH_DIRS[@]}"; do
-    [ -d "$dir" ] || continue
-    echo "  层: $dir"
-    for p in $(ls "$dir"/*.patch 2>/dev/null | sort); do
-        apply_patch "$p" || exit 1
-    done
-done
+bsp_apply_patches "$BUILD_DIR"
 
 # ========== 2.5 拷贝板级 DTS ==========
-if [ -d "$BOARD_DIR/dts" ]; then
-    # 物理板子的 DTS 写入源码副本；QEMU 没有此目录，由模拟器提供 DTB。
+DTS_SOURCE=${BSP_DTS_DIR-$BOARD_DIR/dts}
+if [ -n "$DTS_SOURCE" ]; then
+    [[ "$DTS_SOURCE" = /* ]] || DTS_SOURCE="$BSP_ROOT/$DTS_SOURCE"
+fi
+if [ -n "$DTS_SOURCE" ] && [ -d "$DTS_SOURCE" ]; then
+    # 仅复制本板文件；SoC 公共 DTSI 继续来自选定的内核源码。
     echo ""
     echo ">>> [2.5/5] 拷贝板级 DTS"
     DTS_DEST="$BUILD_DIR/arch/$ARCH/boot/dts/$VENDOR"
     mkdir -p "$DTS_DEST"
-    (
-        # 子 shell 仅改变复制时的工作目录，使 cp 显示相对 BSP 根目录的路径。
-        # 空目录等复制错误仍按原脚本忽略，后续 make 负责检查引用的设备树。
-        cd "$BSP_ROOT" || exit 1
-        cp -v "${BOARD_DIR#"$BSP_ROOT"/}/dts/"* \
-            "${DTS_DEST#"$BSP_ROOT"/}/" 2>/dev/null || true
-    )
+    shopt -s nullglob
+    for dts in "$DTS_SOURCE/"*.dts "$DTS_SOURCE/"*.dtsi; do
+        [[ "$dts" = *-u-boot.dtsi ]] && continue
+        cp -v "$dts" "$DTS_DEST/"
+    done
+    shopt -u nullglob
 fi
 
 # ========== 3. 配置合并 ==========
@@ -226,7 +179,9 @@ case $ARCH in
         shopt -s nullglob
         for image in arch/arm64/boot/Image.*; do bsp_copy_image "$image"; done
         shopt -u nullglob
-        cp -v arch/arm64/boot/dts/$VENDOR/*.dtb "$IMAGES_DIR/" 2>/dev/null || true
+        if [ -n "${BSP_DTS_NAME:-}" ]; then
+            bsp_copy_image "arch/arm64/boot/dts/$VENDOR/$BSP_DTS_NAME.dtb"
+        fi
         ;;
     arm)
         bsp_copy_image arch/arm/boot/zImage

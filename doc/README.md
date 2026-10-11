@@ -4,11 +4,11 @@
 工程根目录的 `build.sh` 是统一入口，目标通过 `vendor / soc / board` 三个参数选择。
 
 当前源码管理与版本锁定见 [Git 仓库管理](git-management.md)。
-未来多平台扩展的候选方案见 [repo 多仓库管理方案](repo-management.md)。
+源码准备和按目标选择目录见 [源码说明](source.md)。
 
 ## 1. 当前工程状态
 
-当前已完整构建并启动验证的目标是 `qemu arm64 virt`：
+此前已完整构建并启动验证的目标是 `qemu arm64 virt`：
 
 ```text
 QEMU virt → U-Boot → Linux → initramfs /init → BusyBox init → root 登录
@@ -26,10 +26,23 @@ QEMU virt → U-Boot → Linux → initramfs /init → BusyBox init → root 登
 root 登录、AArch64 架构、`/proc`、本地 BSP 包、DHCP 和正常关机。
 参考产物大小：内核约 7.8 MiB，压缩 rootfs 约 2.6 MiB。
 
-`rockchip rk3588s evb1` 已有 `bsp.mk`、内核 defconfig 和 DTS 文件，
-当前还没有补齐对应的 U-Boot 和 Buildroot defconfig，不能据此认为完整构建已通过。
-其他 vendor/board 目录用于后续扩展。`manifest.xml`、CI 构建矩阵和测试矩阵
-目前是占位文件，尚未接通源码同步或 CI 流程。
+本次整理后，QEMU 的公共、架构和机器配置职责分开；变更前后合并生成的
+完整内核配置共 1649 项一致，运行时默认仍为 512 MiB / 2 CPU。2026-10-11
+使用现有组件产物重新打包，并通过 QEMU 串口启动、登录、DHCP 和关机回归；
+本轮没有重新编译 QEMU 的全部组件。
+
+首款真实板卡为 `rockchip rk3588s lubancat-4`（野火 LubanCat-4），基线使用
+同一套固定主线 Linux/U-Boot/Buildroot，回移上游板级设备树，并通过 rkbin
+提供固定版本的 DDR 初始化和 BL31 固件。第一阶段配置串口、SD/eMMC、
+有线网络和最小 rootfs，普通 SD 镜像由独立 Rockchip 后端打包。
+本轮已实际编译内核、U-Boot 和 rootfs，并生成和检查 512 MiB SD 镜像；
+rootfs 使用外部 AArch64 GCC 13.4.0。29 项脚本回归测试通过。
+它是开发起点；真实启动与外设状态需要在该板上验证。具体来源、构建记录和配置见
+[LubanCat-4 板级说明](../boards/rockchip/rk3588s/lubancat-4/readme.md)。
+
+`rockchip rk3588s evb1` 是历史占位目标，其内核 defconfig 是空文件，且缺少
+U-Boot/Buildroot 配置；它不是 LubanCat-4。其他厂商目录及 CI 构建/测试矩阵
+仍用于后续扩展，不代表已经完成对应硬件支持。
 
 QEMU `virt` 是通用 ARM64 虚拟平台，不是 RK3588 的硬件模型。
 它适合调试用户态程序、服务和通用内核功能，不能代替 RK3588 专有外设的真板验证。
@@ -42,25 +55,26 @@ DarkOS_S_BSP/
 ├── scripts/                      # 构建、打包、运行及测试脚本
 │   ├── lib/bsp.sh                # 配置、工具链、分层目录和复制等公共函数
 │   └── tests/test-bsp.py          # 入口回归测试
-├── sources/                      # 原始上游源码
+├── sources/                      # 固定提交的源码/固件子模块
 │   ├── linux/
 │   ├── u-boot/
-│   └── buildroot/
-├── common/                       # 各平台共用的配置、包、补丁和 overlay
+│   ├── buildroot/
+│   └── rkbin/
+├── common/                       # 工程共用策略、配置、包、补丁和 overlay
+│   ├── bsp.mk                    # 源码目录、工具链策略、默认并发数
 │   └── packages/darkos-bsp-info/  # 本地示例包，安装 darkos-info
-├── vendors/                      # vendor 通用层与 SoC/架构层
-│   └── qemu/
-│       ├── common/bsp.mk
-│       └── arm64/bsp.mk
-├── boards/                       # 最具体的板级配置
+├── vendors/                      # 厂商通用层与 SoC/架构层
+│   ├── qemu/{common,arm64}/
+│   └── rockchip/{common,rk3588s}/
+├── boards/                       # 真实板卡或虚拟机器的配置
 │   ├── qemu/arm64/virt/
-│   └── rockchip/rk3588s/evb1/
+│   ├── rockchip/rk3588s/lubancat-4/
+│   └── rockchip/rk3588s/evb1/     # 历史占位目标
 ├── output/                       # 各目标的源码副本、构建输出和下载缓存
 │   ├── downloads/                # 共享的 Buildroot 下载缓存
 │   └── qemu_arm64_virt/
 ├── doc/README.md                 # 本文
-├── ci/                           # 预留 CI 目录
-└── manifest.xml                  # 预留源码管理清单
+└── ci/                           # 预留 CI 目录
 ```
 
 每个目标的输出目录固定为 `output/<vendor>_<soc>_<board>/`：
@@ -86,7 +100,8 @@ DarkOS_S_BSP/
 `kernel/`、`uboot/`，之后在副本中应用补丁、复制板级文件并编译。
 这样不同板子的源码修改互相隔离，也不会修改原始源码。
 
-Buildroot 直接使用 `sources/buildroot`，以 `O=<目标目录>/rootfs` 指定输出目录。
+Buildroot 直接使用选定的源码目录（默认 `sources/buildroot`），
+以 `O=<目标目录>/rootfs` 指定输出目录。
 它下载的第三方源码包保存到共享 `output/downloads`，解包和编译文件保存到
 各目标的 `rootfs/build`。原始 Buildroot 源码无需复制。
 
@@ -96,14 +111,22 @@ Linux 和 U-Boot 自身也支持 `O=`；本工程目前采用源码副本，便�
 
 ## 3. 开始使用
 
-构建前需要准备 `sources/linux`、`sources/u-boot` 和 `sources/buildroot`。
-从主仓库拉取工程后，执行 `git submodule update --init --recursive --depth 1`
-初始化三个源码子模块，检出主仓库锁定的提交。
-当前脚本使用已有源码，不自动 clone 或按 `bsp.mk` 中的版本切换 checkout。
+构建前准备 `sources/linux`、`sources/u-boot`、`sources/buildroot`，Rockchip
+目标还使用 `sources/rkbin`。从主仓库拉取后执行：
+
+```bash
+git submodule update --init --recursive --depth 1
+git submodule status
+```
+
+该命令初始化四个子模块，检出主仓库锁定的提交。构建脚本使用已有源码，
+不自动 clone 或按版本描述字段切换 checkout，也不自动拉取原厂 SDK。
 
 宿主需要 Bash、GNU Make、GCC/G++、Python 3、rsync、patch、bison、flex、
 pkg-config、OpenSSL 开发库、wget/curl、cpio、unzip、file、bc 等工具。
-运行虚拟机还需要 `qemu-system-aarch64`。Buildroot 会检查其构建依赖。
+运行虚拟机还需要 `qemu-system-aarch64`；Rockchip SD 镜像打包需要 `sfdisk`
+和 `mkfs.ext4`。Rockchip U-Boot 的 binman 构建还需要 `swig`、`python3-dev`
+和 `python3-pyelftools`。Buildroot 会检查其构建依赖。
 首次 rootfs 构建需要访问源码下载站点；已有缓存可以复用。
 
 在工程根目录执行：
@@ -111,6 +134,8 @@ pkg-config、OpenSSL 开发库、wget/curl、cpio、unzip、file、bc 等工具�
 ```bash
 ./build.sh --help
 ./build.sh list
+./build.sh qemu arm64 virt config
+./build.sh rockchip rk3588s lubancat-4 config
 ./build.sh qemu arm64 virt all --dry-run
 ./build.sh qemu arm64 virt all
 ./build.sh qemu arm64 virt test
@@ -118,6 +143,8 @@ pkg-config、OpenSSL 开发库、wget/curl、cpio、unzip、file、bc 等工具�
 ```
 
 脚本根据自身位置定位工程，也可以在其他工作目录使用入口的绝对路径。
+`config` 只读显示继承后的 BSP 值、实际源码路径和提交、补丁/片段及启动
+固件路径，不创建输出目录；它与加载 Buildroot 配置的 `configure` 是不同命令。
 `dry-run` 检查配置和工具链并展示操作，不正式构建、不创建输出目录、不清理文件。
 
 QEMU 登录名为 `root`，空密码。按 `Ctrl+A` 后按 `X` 退出模拟器，或在 guest
@@ -138,20 +165,22 @@ QEMU 登录名为 `root`，空密码。按 `Ctrl+A` 后按 `X` 退出模拟器�
 2. `build-uboot.sh`：准备副本、应用补丁、加载配置、编译并汇总 U-Boot。
 3. `build-kernel.sh`：准备副本、应用补丁和 DTS、合并配置、编译并汇总内核。
 4. `build-rootfs.sh`：生成工具链配置，调用 Buildroot，汇总 rootfs 镜像。
-5. QEMU 目标调用 `pack-qemu.sh`：生成 `boot.scr` 和镜像校验文件。
+5. 根据 `BSP_PACK_SCRIPT` 调用目标打包后端：QEMU 生成 `boot.scr` 和校验文件；
+   Rockchip 生成带启动器、启动分区和 rootfs 的普通 SD 镜像。
 
 任意阶段失败即停止；`set -e` 与 `pipefail` 使 `tee` 写日志时仍传播构建失败。
 
 | 命令 | 功能 |
 | --- | --- |
-| `all` | 完整构建及 QEMU 打包 |
+| `all` | 完整构建并调用目标打包后端 |
+| `config` | 只读显示最终 BSP 配置、实际源码提交、补丁/片段及固件 |
 | `prepare` | 只建立 `br2-external` |
 | `configure` | 生成 external 和 Buildroot 配置，可执行工具链能力探测，不正式编译组件 |
 | `uboot` / `kernel` / `rootfs` | 构建单个组件 |
 | `menuconfig` | 打开 Buildroot 交互配置菜单，不继续编译镜像 |
-| `pack` | 对已有 QEMU 组件镜像重新打包 |
-| `run` | 校验镜像后启动 QEMU，不执行编译 |
-| `test` | 用串口自动登录、验证并关机 |
+| `pack` | 使用 `BSP_PACK_SCRIPT` 对已有组件镜像重新打包 |
+| `run` | 校验镜像后启动 QEMU，不执行编译，仅适用 QEMU |
+| `test` | 用 QEMU 串口自动登录、验证并关机 |
 | `clean [组件]` | 清理当前目标的 `uboot`、`kernel`、`rootfs` 或全部输出 |
 
 根目录入口用 `exec` 转交给 `scripts/build.sh`。后者解析命令，公共函数库
@@ -173,31 +202,49 @@ QEMU 登录名为 `root`，空密码。按 `Ctrl+A` 后按 `X` 退出模拟器�
 `$(BOARD_DIR)` 和 `include`。公共函数通过 Make 展开 `BSP_*` 变量后逐项赋给
 Bash；不能把这个文件作为普通 shell 文件直接 `source`。
 
-QEMU 默认值按以下顺序加载：
+默认值由板级 `include` 逐层加载：
 
 ```text
-vendors/qemu/common/bsp.mk
-    → vendors/qemu/arm64/bsp.mk
-    → boards/qemu/arm64/virt/bsp.mk
+common/bsp.mk
+  → vendors/<vendor>/common/bsp.mk
+  → vendors/<vendor>/<soc>/bsp.mk
+  → boards/<vendor>/<soc>/<board>/bsp.mk
 ```
 
-板级 `bsp.mk` 分为标识、架构与工具链、内核、U-Boot、Buildroot、补丁、
-配置片段、打包、特性、输出目录，以及 QEMU 专用运行参数等部分。
+QEMU 的 `soc` 位置是 `arm64` 架构，Rockchip 的则为实际芯片 `rk3588s`。
+
+| 层级 | 应维护的内容 |
+| --- | --- |
+| 工程公共层 | 共享源码位置、工具链选择策略、默认并发数、通用包 |
+| 厂商通用层 | 平台共用启动约定、打包后端及跨芯片共享内容 |
+| SoC/架构层 | 架构和工具链前缀、芯片驱动/固件要求、共享配置基线 |
+| 板级层 | 标识、具体设备连接及供电、组件配置选择、启动/分区布局 |
+
+上层默认使用 `?=`，板级需要覆盖时使用 `:=`。共享源码版本在公共层说明并
+由 Git 子模块锁定；板级不需要重复这些字段，也不需要复制默认的四层列表。
+QEMU 的 PL011/Virtio 属于 virt 机器，因此放在板级 `kernel.fragment`；
+其架构片段只保留 PSCI/SMP。Rockchip 的板上供电、DDR 颗粒和无线模块不能
+作为所有芯片/板子的通用配置。
 
 | 常用变量 | 作用 |
 | --- | --- |
 | `BSP_ARCH`、`BSP_CROSS_COMPILE`、`BSP_JOBS` | 架构、默认工具链前缀、并发数 |
 | `BSP_DEFCONFIG`、`BSP_DEFCONFIG_FILE` | 内核配置目标和板级配置文件 |
-| `BSP_KERNEL_TARGETS` | 内核 make 目标；QEMU 仅构建 `Image` |
+| `BSP_KERNEL_TARGETS` | 内核 make 目标；QEMU 仅构建 `Image`，LubanCat-4 还构建对应 DTB |
+| `BSP_KERNEL_SOURCE_DIR` / `BSP_UBOOT_SOURCE_DIR` / `BSP_BUILDROOT_SOURCE_DIR` | 实际使用的已有源码目录 |
 | `BSP_UBOOT_DEFCONFIG`、`BSP_UBOOT_DEFCONFIG_FILE` | U-Boot 配置目标和文件 |
 | `BSP_BUILDROOT_DEFCONFIG`、`BSP_BUILDROOT_DEFCONFIG_FILE` | rootfs 配置模板 |
 | `BSP_TOOLCHAIN_AUTO` | 是否自动寻找满足版本要求的已安装工具链 |
 | `BSP_ROOTFS_EXTERNAL_AUTO` | 是否自动检测并填写外部 glibc 工具链信息 |
-| `BSP_QEMU_*`、`BSP_KERNEL_CMDLINE` | QEMU 运行资源、加载地址和内核命令行 |
+| `BSP_QEMU_*`、`BSP_KERNEL_CMDLINE` | QEMU 资源/地址及目标内核命令行 |
+| `BSP_UBOOT_BL31` / `BSP_UBOOT_TPL` | U-Boot 构建所用的 BL31 和 DDR 固件精确路径 |
+| `BSP_PACK_SCRIPT` | `all` / `pack` 使用的镜像打包后端 |
 
-`BSP_*_VERSION/BRANCH/REPO` 记录期望的源码信息，目前不会触发自动同步。
-特性开关主要用于描述当前板子，不会自动启用对应驱动。
-输出目录由统一入口按三个目标参数生成，`BSP_OUTPUT_*` 是相同规则的配置描述。
+`BSP_*_VERSION/BRANCH/REPO` 是版本说明，不触发自动同步或切换源码；实际
+目录由 `BSP_*_SOURCE_DIR` 和组件环境变量决定。实际提交可用 `config` 查看。
+旧配置中的 `BSP_FEATURE_*` 只是描述，不会启用驱动或安装用户态库；最终能力
+由 Kconfig、Buildroot 配置及硬件验证决定。输出目录由统一入口按目标名生成，
+无需逐板重复 `BSP_OUTPUT_*`。
 
 文件层级为 common → vendor common → SoC → board：
 
@@ -214,13 +261,19 @@ boards/<vendor>/<soc>/<board>/
 
 Linux 片段依次是 `common.fragment`、`<vendor>.fragment`、`<soc>.fragment`、
 板级 `kernel.fragment`；U-Boot 各层统一使用 `uboot.fragment`。
-当前脚本按这些固定目录约定收集文件，`bsp.mk` 中的 `BSP_PATCH_DIRS_*` 和
-`BSP_FRAGMENTS_*` 列表用于描述同一约定，单独修改列表不会改变脚本的收集逻辑。
+未声明列表时，脚本使用上述四层约定；需要另选或调整顺序时，可以显式声明
+`BSP_PATCH_DIRS_LINUX`、`BSP_PATCH_DIRS_UBOOT`、`BSP_FRAGMENTS_LINUX` 和
+`BSP_FRAGMENTS_UBOOT`。这些列表实际控制收集顺序，相对路径以工程根目录
+为基准。显式空列表禁用相应收集；显式片段不存在时报错，默认可选片段不存在
+则跳过。板级一般使用默认约定即可。
 
 ## 6. 内核与 U-Boot 的构建步骤
 
-两者先检查工具链，再在当前目标目录准备源码副本。已有副本会复用，
-不自动同步后来对 `sources` 作出的修改。
+两者先选择实际源码目录并检查工具链，再在当前目标目录准备源码副本。
+已有副本会复用，不自动同步后来对原始源码作出的修改。每个组件通过
+`.darkos-source` 记录源码路径和提交；缺少该记录的旧输出或路径/提交改变时，
+构建会要求先清理对应组件。升级旧工程输出时先执行 `clean kernel`、
+`clean uboot` 或 `clean rootfs`，再重建需要使用的组件，防止混用旧副本。
 
 补丁正向试运行成功时应用；反向试运行成功时认为已经应用；两个方向都失败
 则停止。这样重复构建不会重复应用同一补丁。
@@ -232,6 +285,11 @@ QEMU 没有板级 DTS，设备树由模拟器在启动时提供。
 U-Boot 把板级 defconfig 复制到副本的 `configs/`，生成 `.config`，合并可选
 片段后编译。ARM64 内核使用 `ARCH=arm64`；ARM64 U-Boot 的实现位于
 `arch/arm`，构建参数使用 `ARCH=arm`。
+
+Rockchip U-Boot 构建传入 SoC 选择的 BL31 和 DDR 初始化固件，并汇总
+`u-boot-rockchip.bin`。环境变量 `BL31`、`ROCKCHIP_TPL` 可以覆盖固件路径；
+缺少必需固件时停止。DDR 固件与颗粒/布线的兼容性仍需按实际硬件验证，
+公开二进制文件不代表这些组件都提供源码。
 
 当前内核最低 GCC 版本从源码 `scripts/min-tool-version.sh` 读取，ARM64 为 8.1。
 当前 U-Boot ARM 构建要求 GCC 至少 10；组件脚本允许用板级变量调整最低要求。
@@ -314,6 +372,8 @@ make -C sources/buildroot O="$PWD/output/qemu_arm64_virt/rootfs" \
 | `UBOOT_CROSS_COMPILE` | 指定 U-Boot 工具链前缀 |
 | `ROOTFS_CROSS_COMPILE` | 自动外部 glibc 配置模式下指定 rootfs 工具链前缀 |
 | `CROSS_COMPILE` | 通用工具链前缀，优先使用组件专用覆盖 |
+| `KERNEL_SOURCE_DIR` / `UBOOT_SOURCE_DIR` / `BUILDROOT_SOURCE_DIR` | 覆盖实际源码目录，优先于 `BSP_*_SOURCE_DIR` |
+| `BL31` / `ROCKCHIP_TPL` | 覆盖 Rockchip U-Boot 所用的 BL31/DDR 固件文件 |
 | `BR2_DL_DIR` | 指定共享下载缓存目录 |
 | `QEMU_BINARY` / `QEMU_CPU` | 覆盖模拟器路径和 CPU 型号 |
 | `QEMU_MEMORY` | 运行内存，单位 MiB，当前脚本要求至少 256 |
@@ -331,9 +391,23 @@ ROOTFS_CROSS_COMPILE=/path/to/rootfs-toolchain/bin/aarch64-linux-gnu- \
 ```
 
 非自动模式使用 Buildroot defconfig 中的工具链配置。musl/uClibc、内部工具链或
-复杂原厂 SDK 应编写自己的 defconfig，不启用 QEMU 的外部 glibc 自动配置逻辑。
+复杂原厂 SDK 应编写自己的 defconfig，并设置 `BSP_ROOTFS_EXTERNAL_AUTO := n`
+覆盖公共层默认的外部 glibc 自动检测。
 
-## 9. QEMU 打包与启动
+### 隔离的宿主工具
+
+若本机缺少 SWIG/pyelftools，可以将匹配宿主发行版的官方包下载并解包到
+`output/host-tools/sysroot`。当前工作区已以这种方式准备 SWIG 4.0.2 和
+pyelftools 0.29，没有安装系统软件。该目录属于本地构建环境，不随主仓库提交。
+U-Boot 构建优先使用已安装的系统工具；系统缺少对应工具时，脚本自动使用
+上述目录中的 SWIG 或 pyelftools，并只为构建进程设置环境。
+
+新工作区需要自行准备宿主依赖；源码版本
+固定不会自动下载这些工具。Python 开发头文件用于 U-Boot 从源码构建 pylibfdt。
+
+## 9. 镜像打包与启动
+
+### QEMU
 
 `pack` 要求已有 `u-boot.bin`、`Image` 和 `rootfs.cpio.gz`。
 它使用 U-Boot 副本中编译出的宿主工具 `tools/mkimage`。
@@ -359,6 +433,32 @@ devtmpfs，再执行 BusyBox init。
 
 ```bash
 QEMU_MEMORY=256 QEMU_CPUS=1 ./build.sh qemu arm64 virt run
+```
+
+### Rockchip SD 镜像
+
+Rockchip 通用层选择 `scripts/pack-rockchip.sh`，通过板级变量设置启动器、
+分区大小、设备树和内核命令行。LubanCat-4 镜像包含主线 U-Boot 启动器、
+启动分区中的 Image/DTB/extlinux 配置，以及 Buildroot ext4 根文件系统。
+打包过程仅生成镜像文件，不向 SD/eMMC 设备写入。产物位于本目标 `images/`：
+
+| 文件 | 内容 |
+| --- | --- |
+| `sdcard.img` | 含 GPT、启动器、boot 分区和 rootfs 分区的完整 SD 镜像 |
+| `boot.ext4` | 含 Image、DTB 和 `extlinux/extlinux.conf` 的独立启动文件系统 |
+| `extlinux.conf` | 导出的启动配置；根分区使用打包器生成的 PARTUUID |
+| `partitions.json` | 导出的实际 GPT 分区表 |
+| `SHA256SUMS` | 启动器、Image、DTB、rootfs 和打包镜像的校验值 |
+
+它需要 `sfdisk` 和 `mkfs.ext4`，不要求使用专有 `update.img` 格式。
+镜像文件名、分区和固件来源见
+[LubanCat-4 板级说明](../boards/rockchip/rk3588s/lubancat-4/readme.md)。
+
+```bash
+./build.sh rockchip rk3588s lubancat-4 config
+./build.sh rockchip rk3588s lubancat-4 all --dry-run
+./build.sh rockchip rk3588s lubancat-4 all
+./build.sh rockchip rk3588s lubancat-4 pack
 ```
 
 ## 10. 测试和日志
@@ -426,12 +526,13 @@ make -C sources/buildroot O="$PWD/output/qemu_arm64_virt/rootfs" \
 
 ## 12. 扩展新板子与排查问题
 
-扩展目标时建立 `boards/<vendor>/<soc>/<board>/bsp.mk`，参考 QEMU 与 RK3588S
-现有的分区格式。补齐该目标的内核、U-Boot 和 Buildroot defconfig，按需要加入
-各层补丁、DTS、包和 overlay。先执行 `list` 和 `all --dry-run`，再逐组件构建。
+扩展目标时建立 `boards/<vendor>/<soc>/<board>/bsp.mk`，加载共享厂商和
+SoC/架构配置，仅维护本板的差异。参考 QEMU virt 与 LubanCat-4 的职责划分，
+选择内核/U-Boot 基线及 Buildroot defconfig，按需要加入补丁、DTS、包和
+rootfs overlay。先执行 `list`、`config` 和 `all --dry-run`，再逐组件构建。
 
-目前 QEMU 的打包、启动和实际测试脚本只支持 `qemu arm64 virt`；新增其他
-虚拟机或物理板子时需要实现对应镜像组织与启动方法。
+`run` 和自动启动 `test` 目前只支持 `qemu arm64 virt`。新增物理板子应选择
+或实现合适的 `BSP_PACK_SCRIPT`，并以真实串口和外设测试建立验证记录。
 
 | 现象 | 检查位置与处理 |
 | --- | --- |

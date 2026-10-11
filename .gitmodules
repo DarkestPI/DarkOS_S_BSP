@@ -10,3 +10,7 @@
 	path = sources/buildroot
 	url = https://gitlab.com/buildroot.org/buildroot.git
 	shallow = true
+[submodule "rkbin"]
+	path = sources/rkbin
+	url = https://github.com/rockchip-linux/rkbin.git
+	shallow = true

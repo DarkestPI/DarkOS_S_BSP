@@ -2,11 +2,12 @@
 /output/
 /.repo/
 
-# 仅管理已注册的三个源码子模块。
+# 仅管理已注册的源码子模块。
 /sources/*
 !/sources/linux/
 !/sources/u-boot/
 !/sources/buildroot/
+!/sources/rkbin/
 
 # 本机工具配置和临时文件。
 /.agents/
