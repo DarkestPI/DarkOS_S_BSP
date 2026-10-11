@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  设计样例，尚非正式 manifest：
+  1. 用实际 BSP Git 服务地址替换私有 remote 的 .invalid 域名。
+  2. 初期 BSP 跟踪 main；发布时将其 revision 也改为已验证的提交 SHA。
+  3. 三个上游 SHA 来自当前工作区已验证的源码，upstream 指向相应标签。
+  4. 建议在新 repo 工作区使用，不在现有已构建目录中直接初始化。
+-->
+<manifest>
+  <remote name="darkos" alias="origin"
+          fetch="https://git.example.invalid/darkos" />
+  <remote name="kernel" alias="origin"
+          fetch="https://git.kernel.org/pub/scm/linux/kernel/git/stable" />
+  <remote name="uboot" alias="origin"
+          fetch="https://git.u-boot-project.org/u-boot" />
+  <remote name="buildroot" alias="origin"
+          fetch="https://gitlab.com/buildroot.org" />
+
+  <default sync-j="4" />
+
+  <!-- BSP 只跟踪自己的文件，忽略 sources/ 与 output/，由子项目提供源码。 -->
+  <project name="DarkOS_S_BSP.git" path="bsp" remote="darkos"
+           revision="refs/heads/main" groups="bsp,qemu" />
+
+  <!-- Linux v6.18.55 -->
+  <project name="linux-stable.git" path="bsp/sources/linux" remote="kernel"
+           revision="725bd2f3c81d54edccb66fead01d4c0c222e2231"
+           upstream="refs/tags/v6.18.55" groups="sources,linux,qemu" />
+
+  <!-- U-Boot v2026.10 -->
+  <project name="u-boot.git" path="bsp/sources/u-boot" remote="uboot"
+           revision="5508406582f6f7120dce0c4b3059819a41788db2"
+           upstream="refs/tags/v2026.10" groups="sources,uboot,qemu" />
+
+  <!-- Buildroot 2026.08 -->
+  <project name="buildroot.git" path="bsp/sources/buildroot" remote="buildroot"
+           revision="d5180309b1b66ef3b8eaccca70ad69be8e0729a1"
+           upstream="refs/tags/2026.08" groups="sources,rootfs,qemu" />
+</manifest>

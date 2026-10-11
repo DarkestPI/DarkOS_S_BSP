@@ -1,0 +1,8 @@
+#!/bin/sh
+# BusyBox 启动服务示例：由 rcS 按 S* 文件名顺序传入 start。
+# 启动末尾打印准备完成信息；rcK 传入 stop 时无需额外停止动作。
+case "$1" in
+    start) echo "DarkOS QEMU ready" ;;
+    stop) ;;
+    *) exit 1 ;;
+esac

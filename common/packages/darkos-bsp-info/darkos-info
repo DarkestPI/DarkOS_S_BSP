@@ -1,0 +1,6 @@
+#!/bin/sh
+# guest 内的信息命令：先展示构建时写入的 BSP 目标信息，再展示运行内核。
+# 1. /etc/darkos-bsp-release 由包配方在安装 rootfs 时生成。
+cat /etc/darkos-bsp-release
+# 2. uname 读取当前实际运行的内核、架构和操作系统信息。
+uname -srmo

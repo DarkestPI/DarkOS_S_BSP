@@ -1,0 +1,12 @@
+[submodule "linux"]
+	path = sources/linux
+	url = https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux-stable.git
+	shallow = true
+[submodule "u-boot"]
+	path = sources/u-boot
+	url = https://git.u-boot-project.org/u-boot/u-boot.git
+	shallow = true
+[submodule "buildroot"]
+	path = sources/buildroot
+	url = https://gitlab.com/buildroot.org/buildroot.git
+	shallow = true

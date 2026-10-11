@@ -1,0 +1,20 @@
+# 构建产物、源码副本和下载缓存。
+/output/
+/.repo/
+
+# 仅管理已注册的三个源码子模块。
+/sources/*
+!/sources/linux/
+!/sources/u-boot/
+!/sources/buildroot/
+
+# 本机工具配置和临时文件。
+/.agents/
+/.codex/
+/.aws/
+__pycache__/
+*.py[cod]
+*.swp
+*.swo
+*~
+.DS_Store

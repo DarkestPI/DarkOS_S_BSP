@@ -1,0 +1,4 @@
+config BR2_PACKAGE_DARKOS_BSP_INFO
+	bool "darkos-bsp-info"
+	help
+	  Install the darkos-info command and selected BSP target information.

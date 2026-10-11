@@ -1,0 +1,77 @@
+{
+  "folders": [
+    { "path": ".", "name": "🏠 BSP 根目录" },
+    { "path": "sources", "name": "📦 源码" },
+    { "path": "common", "name": "🧱 公共层" },
+    { "path": "vendors", "name": "🏭 厂商层" },
+    { "path": "boards", "name": "📋 板级层" },
+    { "path": "scripts", "name": "🔧 脚本" },
+    { "path": "ci", "name": "🤖 CI" },
+    { "path": "doc", "name": "📚 文档" },
+    { "path": "output", "name": "📦 构建产物" }   
+  ],
+  "settings": {
+    // 禁用自动构建系统检测
+    "cmake.configureOnOpen": false,
+    "cmake.configureOnEdit": false,
+    "cmake.automaticReconfigure": false,
+    "cmake.autoSelectActiveFolder": false,
+    "cmake.buildBeforeRun": false,
+    "cmake.ignoreCMakeListsMissing": true,
+    "makefile.configureOnOpen": false,
+    "task.autoDetect": "off",
+
+    // 文件排除：隐藏构建产物和无关文件
+    "files.exclude": {
+      "**/.git": true,
+      "**/.svn": true,
+      "**/.hg": true,
+      "**/CVS": true,
+      "**/.DS_Store": true,
+      "**/Thumbs.db": true,
+      "**/__pycache__": true,
+      "**/*.pyc": true,
+      "**/output": true,
+      "**/build": true,
+      "**/tmp": true,
+      "**/*.o": true,
+      "**/*.a": true,
+      "**/*.so": true,
+      "**/*.ko": true,
+      "**/*.mod": true,
+      "**/*.cmd": true,
+      "**/Module.symvers": true,
+      "**/modules.order": true
+    },
+    "search.exclude": {
+      "**/output": true,
+      "**/build": true,
+      "**/tmp": true,
+      "**/node_modules": true,
+      "**/.git": true
+    },
+    // 可选：文件关联，把 dts 当 C 处理？不必要
+    "files.associations": {
+      "*.dts": "dts",
+      "*.dtsi": "dts",
+      "*.fragment": "kconfig",
+      "Config.in": "kconfig",
+      "*.mk": "makefile"
+    },
+    // 可选：C/C++ 配置，不自动扫描
+    "C_Cpp.intelliSenseEngine": "disabled",
+
+    // // 配置 Command Runner 快捷命令
+    // "command-runner.terminal.name": "BSP 构建",
+    // "command-runner.terminal.autoClear": true,
+    // "command-runner.terminal.cwd": "${workspaceFolder}",
+    // "command-runner.commands": {
+    //   "🔨 编译 RK3588": "./scripts/build.sh rockchip rk3588 evb1",
+    //   "🔨 编译 i.MX8MP": "./scripts/build.sh nxp imx8mp evk",
+    //   "🐧 编译内核 (RK3588)": "./scripts/build.sh rockchip rk3588 evb1 kernel",
+    //   "🧹 清理构建产物": "./scripts/clean.sh",
+    //   "📦 打包所有芯片": "./scripts/build-all.sh"
+    // }
+
+  }
+}
