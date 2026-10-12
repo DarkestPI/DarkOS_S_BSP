@@ -6,11 +6,11 @@
 
 | 层级 | 内容 |
 | --- | --- |
-| `rockchip/common` | BootROM 镜像偏移、打包入口、Rockchip 通用 pinctrl/GPIO/时钟/MMC 驱动 |
+| `rockchip/common` | rkbin 启动固件子模块、BootROM 镜像偏移、打包入口、Rockchip 通用 pinctrl/GPIO/时钟/MMC 驱动 |
 | `rockchip/rk3588s` | 最小 ARM64 内核配置、八核 CPU/SCMI/温控片段、DDR 与 BL31 文件选择 |
 | `boards/rockchip/rk3588s/lubancat-4` | PMIC、网口 PHY、板级设备树、串口、根文件系统与 SD 分区布局 |
 
-当前选择本工程已固定的主线 Linux 6.18.55、U-Boot 2026.10 和 Buildroot 2026.08，配合 `sources/rkbin` 子模块中的原厂 DDR/BL31 二进制。源码版本实际由 Git 子模块提交锁定；`BSP_*_VERSION` 字段不自动切换源码。
+当前选择本工程已固定的主线 Linux 6.18.55、U-Boot 2026.10 和 Buildroot 2026.08，配合 `vendors/rockchip/common/rkbin` 子模块中的原厂 DDR/BL31 二进制。源码版本实际由 Git 子模块提交锁定；`BSP_*_VERSION` 字段不自动切换源码。
 
 RK3588S 在主线 U-Boot 中使用 `CONFIG_ROCKCHIP_RK3588`，启动固件采用 `rk3588_*` 文件名。当前组合为 DDR `rk3588_ddr_lp4_2112MHz_lp5_2400MHz_v1.24.bin` 和 BL31 `rk3588_bl31_v1.56.elf`。DDR v1.20 起新增双通道支持时要求 BL31 至少 v1.53，所选组合满足这一版本要求；这不替代具体 DDR 型号、板卡版本和硬件启动验证。
 

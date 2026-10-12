@@ -9,7 +9,7 @@ vendors、boards、ci、doc 和构建入口；源码/固件子模块保留各自
 | `sources/linux` | `v6.18.55` | `725bd2f3c81d54edccb66fead01d4c0c222e2231` |
 | `sources/u-boot` | `v2026.10` | `5508406582f6f7120dce0c4b3059819a41788db2` |
 | `sources/buildroot` | `2026.08` | `d5180309b1b66ef3b8eaccca70ad69be8e0729a1` |
-| `sources/rkbin` | 官方 RK3588 启动固件快照 | `3e288fe814e059dd06833495f845cab04ac20a5c` |
+| `vendors/rockchip/common/rkbin` | 官方 RK3588 启动固件快照 | `3e288fe814e059dd06833495f845cab04ac20a5c` |
 
 主仓库提交中的 gitlink 决定每个子模块的实际版本，`.gitmodules` 保存仓库地址
 和浅克隆设置。`common/bsp.mk` 中的版本字段用于说明期望版本，不自动切换源码。

@@ -4,7 +4,8 @@
 SoC/架构层和板级层；各目标在 `output/<vendor>_<soc>_<board>/` 中独立构建。
 
 当前主仓库维护构建脚本、配置、设备树、补丁和文档，四个 Git 子模块固定
-Linux、U-Boot、Buildroot 和 Rockchip rkbin 的版本。详见
+Linux、U-Boot、Buildroot 和 Rockchip rkbin 的版本。前三者位于 `sources/`，
+rkbin 位于 `vendors/rockchip/common/rkbin`，供 Rockchip 各目标共享。详见
 [工程说明](doc/README.md)、[Git 仓库管理](doc/git-management.md)和
 [源码准备](doc/source.md)。
 

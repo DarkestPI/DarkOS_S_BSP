@@ -36,7 +36,8 @@ QEMU 的第二层标识 `arm64` 是架构，`virt` 是机器。Rockchip 的 `rk3
 
 当前真实硬件开发目标为 `rockchip rk3588s lubancat-4`，具体配置见
 [LubanCat-4 板级说明](../boards/rockchip/rk3588s/lubancat-4/readme.md)。
-启动固件由官方 rkbin 子模块提供，板级功能按阶段验证。
+启动固件由 `vendors/rockchip/common/rkbin` 中的官方子模块提供，
+供 Rockchip 各 SoC 和板卡共享；板级功能按阶段验证。
 
 - [官网](https://www.rock-chips.com/)
 - [开源社区](https://opensource.rock-chips.com/)

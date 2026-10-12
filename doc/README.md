@@ -55,17 +55,18 @@ DarkOS_S_BSP/
 ├── scripts/                      # 构建、打包、运行及测试脚本
 │   ├── lib/bsp.sh                # 配置、工具链、分层目录和复制等公共函数
 │   └── tests/test-bsp.py          # 入口回归测试
-├── sources/                      # 固定提交的源码/固件子模块
+├── sources/                      # 固定提交的主线源码子模块
 │   ├── linux/
 │   ├── u-boot/
-│   ├── buildroot/
-│   └── rkbin/
+│   └── buildroot/
 ├── common/                       # 工程共用策略、配置、包、补丁和 overlay
 │   ├── bsp.mk                    # 源码目录、工具链策略、默认并发数
 │   └── packages/darkos-bsp-info/  # 本地示例包，安装 darkos-info
 ├── vendors/                      # 厂商通用层与 SoC/架构层
 │   ├── qemu/{common,arm64}/
-│   └── rockchip/{common,rk3588s}/
+│   └── rockchip/
+│       ├── common/rkbin/          # 固定提交的 Rockchip 启动固件子模块
+│       └── rk3588s/
 ├── boards/                       # 真实板卡或虚拟机器的配置
 │   ├── qemu/arm64/virt/
 │   ├── rockchip/rk3588s/lubancat-4/
@@ -112,7 +113,7 @@ Linux 和 U-Boot 自身也支持 `O=`；本工程目前采用源码副本，便�
 ## 3. 开始使用
 
 构建前准备 `sources/linux`、`sources/u-boot`、`sources/buildroot`，Rockchip
-目标还使用 `sources/rkbin`。从主仓库拉取后执行：
+目标还使用 `vendors/rockchip/common/rkbin`。从主仓库拉取后执行：
 
 ```bash
 git submodule update --init --recursive --depth 1

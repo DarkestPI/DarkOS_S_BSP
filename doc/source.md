@@ -10,8 +10,9 @@ git submodule status
 ```
 
 四个目录分别是 `sources/linux`、`sources/u-boot`、`sources/buildroot` 和
-`sources/rkbin`。前三者为当前固定的主线源码；rkbin 为瑞芯微官方发布的启动
-固件仓库，其中 DDR 初始化等组件以二进制提供。加入 rkbin 不会把内核或
+`vendors/rockchip/common/rkbin`。前三者为当前固定的主线源码；rkbin 为瑞芯微
+官方发布的启动固件仓库，放在 Rockchip 厂商通用层供各 SoC 和板卡共享，
+其中 DDR 初始化等组件以二进制提供。加入 rkbin 不会把内核或
 U-Boot 切换为原厂 SDK。
 
 `--depth 1` 减少历史下载，源码文件仍完整。主仓库中的 gitlink 决定实际提交，

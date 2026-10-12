@@ -35,7 +35,7 @@ ROOTFS_CROSS_COMPILE=/opt/rv1126b-aarch64-toolchain/bin/aarch64-buildroot-linux-
 
 示例使用本机已安装的外部工具链；在其他机器上按实际安装路径调整 `ROOTFS_CROSS_COMPILE`。
 
-也可分别构建内核、U-Boot 和 rootfs，然后调用本目标的打包脚本。产物位于 `output/rockchip_rk3588s_lubancat-4/images/`。`sources/rkbin` 必须按主仓库记录的子模块提交初始化，构建 U-Boot 需要板级配置选择的 DDR v1.24 和 BL31 v1.56 文件。
+也可分别构建内核、U-Boot 和 rootfs，然后调用本目标的打包脚本。产物位于 `output/rockchip_rk3588s_lubancat-4/images/`。`vendors/rockchip/common/rkbin` 必须按主仓库记录的子模块提交初始化，构建 U-Boot 需要板级配置选择的 DDR v1.24 和 BL31 v1.56 文件。
 
 SD 镜像为 512 MiB：BootROM 启动镜像从 LBA 64 开始；boot 分区从 16 MiB 开始，容量 128 MiB；rootfs 分区使用剩余空间。Buildroot 生成 256 MiB 的 ext4 文件系统。
 
