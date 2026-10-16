@@ -12,7 +12,6 @@ build.sh            入口：定位工程 → 解析参数（lib/entry.sh）→ 
 │   └── build-state.py  输入指纹、增量兼容性判断和源码同步
 ├── cmds/           命令实现，接口统一：cmds/<命令>.sh <vendor> <soc> <board> [选项]
 │   ├── all.sh      完整流水线：2.1 组件 → 2.2 打包 → 2.3 升级包(预留) → 2.4 报告(预留)
-│   ├── prepare.sh  生成目标专属 br2-external（符号链接接入四层）
 │   ├── uboot.sh / kernel.sh / rootfs.sh   各组件配置、构建、日志和产物汇总
 │   ├── configure.sh / menuconfig.sh       rootfs 配置类操作，转发给 rootfs.sh
 │   ├── config.sh   显示合并后的配置并生成快照 output/<目标>/bsp.config

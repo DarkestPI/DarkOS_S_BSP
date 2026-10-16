@@ -4,14 +4,14 @@ cat <<'HELP'
 用法: ./build.sh <vendor> <soc> <board> [命令] [选项]
       ./build.sh list | help
 命令（实现见 cmds/ 目录，一命令一文件）:
-  all          完整流水线：prepare → U-Boot → 内核 → rootfs → 打包（默认）
-  prepare      仅生成基于符号链接的 br2-external
+  all          完整流水线：U-Boot → 内核 → rootfs → 打包（默认）
   uboot        仅编译 U-Boot
   kernel       仅编译内核
   rootfs       仅编译 Buildroot rootfs
   configure    生成 br2-external 并加载 Buildroot 配置，不编译
   menuconfig   打开 Buildroot 配置菜单
-  config       显示继承后的 BSP 配置，并生成快照 output/<目标>/bsp.config
+  config       生成 br2-external，显示继承后的 BSP 配置并生成快照
+               output/<目标>/bsp.config
   pack         调用当前平台的打包后端生成启动镜像及校验文件
   run          启动 QEMU（root 登录，空密码；Ctrl+A X 退出）
   test         启动 QEMU，验证登录、架构、网络接口并关机

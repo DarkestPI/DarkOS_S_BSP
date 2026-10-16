@@ -169,11 +169,11 @@ QEMU 登录名为 `root`，空密码。按 `Ctrl+A` 后按 `X` 退出模拟器�
 
 未指定命令时执行 `all`。完整流程依次为：
 
-1. `prepare-external.sh`：建立当前目标的 `br2-external` 相对符号链接和入口文件。
-2. `build-uboot.sh`：准备副本、应用补丁、加载配置、编译并汇总 U-Boot。
-3. `build-kernel.sh`：准备副本、应用补丁和 DTS、合并配置、编译并汇总内核。
-4. `build-rootfs.sh`：生成工具链配置，调用 Buildroot，汇总 rootfs 镜像。
-5. 根据 `BSP_PACK_SCRIPT` 调用目标打包后端：QEMU 生成 `boot.scr` 和校验文件；
+1. `cmds/uboot.sh`：准备副本、应用补丁、加载配置、编译并汇总 U-Boot。
+2. `cmds/kernel.sh`：准备副本、应用补丁和 DTS、合并配置、编译并汇总内核。
+3. `cmds/rootfs.sh`：生成 `br2-external` 和工具链配置，调用 Buildroot，
+   汇总 rootfs 镜像。
+4. 根据 `BSP_PACK_SCRIPT` 调用目标打包后端：QEMU 生成 `boot.scr` 和校验文件；
    Rockchip 生成带启动器、启动分区和 rootfs 的普通 SD 镜像。
 
 任意阶段失败即停止；`set -e` 与 `pipefail` 使 `tee` 写日志时仍传播构建失败。
@@ -181,8 +181,7 @@ QEMU 登录名为 `root`，空密码。按 `Ctrl+A` 后按 `X` 退出模拟器�
 | 命令 | 功能 |
 | --- | --- |
 | `all` | 完整构建并调用目标打包后端 |
-| `config` | 显示最终 BSP 配置、源码提交及分区/打包布局，生成快照 `output/<目标>/bsp.config` |
-| `prepare` | 只建立 `br2-external` |
+| `config` | 建立 `br2-external`，显示最终 BSP 配置及分区/打包布局，生成快照 `output/<目标>/bsp.config` |
 | `configure` | 生成 external 和 Buildroot 配置，可执行工具链能力探测，不正式编译组件 |
 | `uboot` / `kernel` / `rootfs` | 构建单个组件 |
 | `menuconfig` | 打开 Buildroot 交互配置菜单，不继续编译镜像 |

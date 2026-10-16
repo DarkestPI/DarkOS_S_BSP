@@ -487,8 +487,8 @@ class BspScriptsTest(unittest.TestCase):
         self.assertFalse(self.output.exists())
 
     def test_all_uses_selected_pack_backend_after_components(self):
-        stages = ("cmds/prepare.sh", "cmds/uboot.sh", "cmds/kernel.sh",
-                  "cmds/rootfs.sh", "fixture-pack.sh")
+        stages = ("cmds/uboot.sh", "cmds/kernel.sh", "cmds/rootfs.sh",
+                  "fixture-pack.sh")
         for index, name in enumerate(stages):
             script = self.root / "scripts" / name
             script.write_text(f"#!/bin/sh\necho fixture-stage-{index}\n")
@@ -498,7 +498,7 @@ class BspScriptsTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         observed = [line for line in result.stdout.splitlines()
                     if line.startswith("fixture-stage-")]
-        self.assertEqual(observed, [f"fixture-stage-{index}" for index in range(5)])
+        self.assertEqual(observed, [f"fixture-stage-{index}" for index in range(4)])
         self.assertFalse(self.output.exists())
 
     def run_bsp(self, *args, env=None):
@@ -781,10 +781,10 @@ class BspScriptsTest(unittest.TestCase):
                     file.unlink()
                     original.rename(file)
 
-    def test_prepare_links_and_make_variable_expansion(self):
-        # 连续 prepare 两次，验证可重复生成、相对链接和可选层跳过规则。
+    def test_config_builds_external_links_and_make_variable_expansion(self):
+        # 连续 config 两次，验证 external 可重复生成、相对链接和可选层跳过规则。
         for _ in range(2):
-            result = self.run_bsp("prepare")
+            result = self.run_bsp("config")
             self.assertEqual(result.returncode, 0, result.stdout)
         external = self.output / "br2-external"
         self.assertEqual((external / "layers/generic").resolve(), self.root / "generic")
@@ -797,7 +797,7 @@ class BspScriptsTest(unittest.TestCase):
 
     def test_dry_run_does_not_create_output(self):
         # dry-run 应成功展示操作，并且不创建输出目录。
-        result = self.run_bsp("prepare", "--dry-run")
+        result = self.run_bsp("config", "--dry-run")
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertFalse(self.output.exists())
 

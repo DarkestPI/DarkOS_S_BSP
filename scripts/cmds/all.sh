@@ -28,10 +28,10 @@ ARGS=()
 
 pipeline() {
     # ---------- 2.1 编译 bootloader、内核、根文件系统 ----------
-    "$SCRIPT_DIR/prepare.sh" "$VENDOR" "$SOC" "$BOARD" "${ARGS[@]}"
-    "$SCRIPT_DIR/uboot.sh"   "$VENDOR" "$SOC" "$BOARD" "${ARGS[@]}"
-    "$SCRIPT_DIR/kernel.sh"  "$VENDOR" "$SOC" "$BOARD" "${ARGS[@]}"
-    "$SCRIPT_DIR/rootfs.sh"  "$VENDOR" "$SOC" "$BOARD" "${ARGS[@]}"
+    # br2-external 由 rootfs 首步自行生成，无需单独的 prepare 阶段。
+    "$SCRIPT_DIR/uboot.sh"  "$VENDOR" "$SOC" "$BOARD" "${ARGS[@]}"
+    "$SCRIPT_DIR/kernel.sh" "$VENDOR" "$SOC" "$BOARD" "${ARGS[@]}"
+    "$SCRIPT_DIR/rootfs.sh" "$VENDOR" "$SOC" "$BOARD" "${ARGS[@]}"
     # ---------- 2.2 打包启动镜像 ----------
     if [ -n "${BSP_PACK_SCRIPT:-}" ]; then
         "$SCRIPT_DIR/pack.sh" "$VENDOR" "$SOC" "$BOARD" ${DRY_RUN:+"$DRY_RUN"}
