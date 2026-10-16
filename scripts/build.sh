@@ -1,131 +1,21 @@
 #!/bin/bash
-# 统一入口：选择 BSP 目标，再分派准备、构建、打包、运行和清理操作。
-# 用法及各命令见 usage；工程说明见 doc/README.md。
-# 任意阶段失败即停止；pipefail 保证 tee 写日志时仍传播构建失败。
+# DarkOS BSP 构建入口。
+#
+# 本文件不做任何具体工作，只完成三件事：
+#   1. 按脚本位置定位工程；
+#   2. 加载公共库和参数解析（lib/entry.sh）；
+#   3. 把命令交给 cmds/<命令>.sh 执行。
+#
+# 命令一览——cmds/ 目录一命令一文件，目录即命令表：
+#   all(默认) list help
+#   prepare configure menuconfig uboot kernel rootfs
+#   config pack run test clean
+# 详细用法：./build.sh help
 set -eo pipefail
 
-# ========== 1. 根据脚本位置定位工程，加载公共函数 ==========
-# 不依赖调用者的当前目录，支持从工程之外执行入口脚本。
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 source "$SCRIPT_DIR/lib/bsp.sh"
-usage() {
-    cat <<'HELP'
-用法: ./build.sh <vendor> <soc> <board> [命令] [选项]
-      ./build.sh list
-命令:
-  all          生成 br2-external，构建 U-Boot/内核/rootfs，然后打包（默认）
-  prepare      仅生成基于符号链接的 br2-external
-  config       显示继承后的 BSP 配置，并生成快照 output/<目标>/bsp.config
-  configure    生成 br2-external 并加载 Buildroot 配置，不编译
-  uboot        仅编译 U-Boot
-  kernel       仅编译内核
-  rootfs       仅编译 Buildroot rootfs
-  menuconfig   打开 Buildroot 配置菜单
-  pack         调用当前平台的打包后端生成启动镜像及校验文件
-  run          启动 QEMU（root 登录，空密码；Ctrl+A X 退出）
-  test         启动 QEMU，验证登录、架构、网络接口并关机
-  clean [uboot|kernel|rootfs|all]   清理所选目标或组件
-构建选项（all/uboot/kernel/rootfs/configure/menuconfig）:
-  --full         强制所选组件全量重建，保留其他组件和下载缓存
-  --incremental  仅允许兼容的增量构建；需要全量时报告原因并退出
-  --dry-run      只读显示操作及全量/增量判定，不编译或清理
-默认自动判断：首次构建或不兼容输入变化时全量，其余复用构建结果。
-环境变量: JOBS、KERNEL_CROSS_COMPILE、UBOOT_CROSS_COMPILE、ROOTFS_CROSS_COMPILE
-          KERNEL_SOURCE_DIR、UBOOT_SOURCE_DIR、BUILDROOT_SOURCE_DIR、BL31、ROCKCHIP_TPL
-示例: ./build.sh qemu arm64 virt all
-      ./build.sh qemu arm64 virt all --dry-run
-      ./build.sh rockchip rk3588s lubancat-4 kernel --full
-HELP
-}
-# ========== 2. 处理无需选定板子的帮助和目标列表 ==========
-# 以实际存在的 boards/<vendor>/<soc>/<board>/bsp.mk 为目标清单。
-case "${1:-}" in
-    -h|--help|help|'') usage; exit ;;
-    list)
-        for config in "$SCRIPT_DIR/../boards/"*/*/*/bsp.mk; do
-            [ -f "$config" ] || continue
-            target=${config#"$SCRIPT_DIR/../boards/"}; target=${target%/bsp.mk}
-            echo "${target//\// }"
-        done
-        exit ;;
-esac
-# ========== 3. 读取板级配置，检查命令参数，识别 dry-run ==========
-# bsp_load 用 Make 解析 bsp.mk，同时确定当前目标的输出与日志目录。
-bsp_load "${1:-}" "${2:-}" "${3:-}"
-shift 3
-COMMAND=all
-if [ "$#" -gt 0 ] && [[ "$1" != --* ]]; then COMMAND=$1; shift; fi
-DRY_RUN=
-BUILD_MODE=auto
-component=all
-component_seen=n
-for option in "$@"; do
-    case "$option" in
-        --dry-run) [ -z "$DRY_RUN" ] || bsp_die "重复选项 $option"; DRY_RUN=--dry-run ;;
-        --full|--incremental)
-            [ "$BUILD_MODE" = auto ] || bsp_die "--full 和 --incremental 只能选择一个，且不能重复"
-            BUILD_MODE=${option#--} ;;
-        all|uboot|kernel|rootfs)
-            [ "$COMMAND" = clean ] && [ "$component_seen" = n ] || bsp_die "未知参数 $option"
-            component=$option; component_seen=y ;;
-        *) bsp_die "未知参数 $option" ;;
-    esac
-done
-case "$COMMAND" in
-    all|uboot|kernel|rootfs|configure|menuconfig) ;;
-    *) [ "$BUILD_MODE" = auto ] || bsp_die "$COMMAND 不支持 --$BUILD_MODE" ;;
-esac
-BUILD_OPTIONS=()
-[ "$BUILD_MODE" = auto ] || BUILD_OPTIONS+=("--$BUILD_MODE")
-[ -z "$DRY_RUN" ] || BUILD_OPTIONS+=("$DRY_RUN")
-echo "DarkOS BSP: $VENDOR / $SOC / $BOARD — $COMMAND"
-# ========== 4. 定义分组件调用及完整构建顺序 ==========
-# 所有组件使用同一个目标；只有需要时才传递 --dry-run 参数。
-stage() { "$SCRIPT_DIR/$1" "$VENDOR" "$SOC" "$BOARD" ${DRY_RUN:+"$DRY_RUN"}; }
-build_stage() { "$SCRIPT_DIR/build-$1.sh" "$VENDOR" "$SOC" "$BOARD" "${BUILD_OPTIONS[@]}"; }
-pack_stage() {
-    local backend=${BSP_PACK_SCRIPT:-}
-    [ -n "$backend" ] || bsp_die "此目标未配置 BSP_PACK_SCRIPT 打包后端"
-    [[ "$backend" = /* ]] || backend="$BSP_ROOT/$backend"
-    [ -f "$backend" ] || bsp_die "找不到打包脚本 $backend"
-    bash "$backend" "$VENDOR" "$SOC" "$BOARD" ${DRY_RUN:+"$DRY_RUN"}
-}
-build_all() {
-    # 准备 external -> U-Boot -> 内核 -> rootfs -> QEMU 启动镜像。
-    stage prepare-external.sh
-    build_stage uboot
-    build_stage kernel
-    build_stage rootfs
-    if [ -n "${BSP_PACK_SCRIPT:-}" ]; then pack_stage; fi
-}
-# ========== 5. 执行用户选择的操作 ==========
-case "$COMMAND" in
-    all)
-        if [ -n "$DRY_RUN" ]; then build_all
-        else
-            # 完整流程额外保留总日志，各组件仍写自己的日志。
-            mkdir -p "$LOGS_DIR"
-            build_all 2>&1 | tee "$LOGS_DIR/build.log"
-        fi
-        ;;
-    prepare) stage prepare-external.sh ;;
-    config) bsp_print_config ;;
-    configure) "$SCRIPT_DIR/build-rootfs.sh" "$VENDOR" "$SOC" "$BOARD" configure "${BUILD_OPTIONS[@]}" ;;
-    uboot) build_stage uboot ;;
-    kernel) build_stage kernel ;;
-    rootfs) build_stage rootfs ;;
-    menuconfig) "$SCRIPT_DIR/build-rootfs.sh" "$VENDOR" "$SOC" "$BOARD" menuconfig "${BUILD_OPTIONS[@]}" ;;
-    pack) pack_stage ;;
-    run) stage run-qemu.sh ;;
-    test)
-        # 实测时由 Python 驱动串口登录；dry-run 仅展示启动参数。
-        if [ -n "$DRY_RUN" ]; then stage run-qemu.sh
-        else python3 "$SCRIPT_DIR/test-qemu.py" "$VENDOR" "$SOC" "$BOARD"; fi ;;
-    clean)
-        # all 删除当前目标目录；组件清理交给对应脚本。
-        # 共享下载缓存 output/downloads 不在此清理范围内。
-        if [ -n "$DRY_RUN" ]; then echo "将清理 ${OUTPUT_DIR#"$BSP_ROOT"/} ($component)"; exit; fi
-        if [ "$component" = all ]; then rm -rf "$OUTPUT_DIR"
-        else "$SCRIPT_DIR/build-$component.sh" "$VENDOR" "$SOC" "$BOARD" clean; fi ;;
-    *) usage; bsp_die "不支持的命令 $COMMAND" ;;
-esac
+source "$SCRIPT_DIR/lib/entry.sh"
+
+entry_parse "$@"    # 解析 <vendor> <soc> <board> [命令] [选项]；help/list 就地完成
+run_command         # 执行 cmds/$COMMAND.sh <vendor> <soc> <board> [选项]

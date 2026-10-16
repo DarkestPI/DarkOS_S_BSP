@@ -1,6 +1,6 @@
 # <vendor> 厂商公共层：维护本厂商各芯片/板卡共用约定；芯片差异在 soc/ 层。
 # 使用方法：复制 vendor-template 为 vendors/<vendor>/，全文替换 <vendor> 占位符。
-include $(BSP_ROOT)/common/bsp.mk
+include $(BSP_ROOT)/generic/bsp.mk
 
 BSP_VENDOR ?= <vendor>
 

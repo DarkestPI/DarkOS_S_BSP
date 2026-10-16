@@ -16,16 +16,18 @@ class BspScriptsTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix="darkos-bsp-test-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        source = Path(__file__).resolve().parents[2]
-        shutil.copytree(source / "scripts", self.root / "scripts")
-        shutil.copy2(source / "build.sh", self.root / "build.sh")
+        # 脚本树整体拷入临时工程并固定名为 scripts/，入口为 scripts/build.sh。
+        scripts = Path(__file__).resolve().parents[1]
+        project = scripts.parent
+        shutil.copytree(scripts, self.root / "scripts",
+                        ignore=shutil.ignore_patterns("__pycache__"))
         self.board = self.root / "boards/qemu/arm64/test"
         # 2. 创建最小板级文件和公共层，用于验证 Make 变量展开及 external 链接。
         (self.board / "configs").mkdir(parents=True)
-        (self.root / "common/packages").mkdir(parents=True)
-        (self.root / "common/packages/Config.in").write_text("# fixture\n")
-        if (source / "common/bsp.mk").is_file():
-            shutil.copy2(source / "common/bsp.mk", self.root / "common/bsp.mk")
+        (self.root / "generic/packages").mkdir(parents=True)
+        (self.root / "generic/packages/Config.in").write_text("# fixture\n")
+        if (project / "generic/bsp.mk").is_file():
+            shutil.copy2(project / "generic/bsp.mk", self.root / "generic/bsp.mk")
         (self.board / "configs/rootfs_defconfig").write_text("BR2_aarch64=y\n")
         (self.board / "configs/uboot_defconfig").write_text("CONFIG_ARM=y\n")
         compiler = self.root / "bin/test-gcc"
@@ -34,7 +36,7 @@ class BspScriptsTest(unittest.TestCase):
         compiler.write_text("#!/bin/sh\necho 12.3.0\n")
         compiler.chmod(0o755)
         (self.board / "bsp.mk").write_text(
-            "-include $(BSP_ROOT)/common/bsp.mk\n"
+            "-include $(BSP_ROOT)/generic/bsp.mk\n"
             "BSP_ARCH := arm64\n"
             "BSP_CROSS_COMPILE := $(BSP_ROOT)/bin/test-\n"
             "BSP_UBOOT_DEFCONFIG := fixture_defconfig\n"
@@ -57,9 +59,9 @@ class BspScriptsTest(unittest.TestCase):
             stderr=subprocess.STDOUT)
 
     def make_layers(self, component="linux"):
-        layers = [self.root / "common", self.root / "vendors/qemu/common",
+        layers = [self.root / "generic", self.root / "vendors/qemu/common",
                   self.root / "vendors/qemu/arm64", self.board]
-        fragment_names = (["common.fragment", "qemu.fragment", "arm64.fragment",
+        fragment_names = (["generic.fragment", "qemu.fragment", "arm64.fragment",
                            "kernel.fragment"] if component == "linux"
                           else ["uboot.fragment"] * 4)
         patches, fragments = [], []
@@ -485,8 +487,8 @@ class BspScriptsTest(unittest.TestCase):
         self.assertFalse(self.output.exists())
 
     def test_all_uses_selected_pack_backend_after_components(self):
-        stages = ("prepare-external.sh", "build-uboot.sh", "build-kernel.sh",
-                  "build-rootfs.sh", "fixture-pack.sh")
+        stages = ("cmds/prepare.sh", "cmds/uboot.sh", "cmds/kernel.sh",
+                  "cmds/rootfs.sh", "fixture-pack.sh")
         for index, name in enumerate(stages):
             script = self.root / "scripts" / name
             script.write_text(f"#!/bin/sh\necho fixture-stage-{index}\n")
@@ -504,7 +506,7 @@ class BspScriptsTest(unittest.TestCase):
 
     def run_target(self, vendor, soc, board, *args, env=None):
         # 从 /tmp 调用临时工程入口，同时检查脚本不依赖当前工作目录。
-        return subprocess.run([str(self.root / "build.sh"), vendor, soc, board, *args],
+        return subprocess.run([str(self.root / "scripts" / "build.sh"), vendor, soc, board, *args],
                               cwd="/tmp", text=True, stdout=subprocess.PIPE,
                               stderr=subprocess.STDOUT,
                               env={**os.environ, **(env or {})})
@@ -631,7 +633,7 @@ class BspScriptsTest(unittest.TestCase):
         self.rk_images = self.rk_output / "images"
         self.root_uuid = "614e0000-0000-4b53-8000-000000000002"
         (self.rk_board / "bsp.mk").write_text(
-            "-include $(BSP_ROOT)/common/bsp.mk\n"
+            "-include $(BSP_ROOT)/generic/bsp.mk\n"
             "BSP_BOARD_NAME := Rockchip packaging fixture\n"
             "BSP_PACK_SCRIPT := scripts/pack-rockchip.sh\n"
             "BSP_BOOTLOADER_IMAGE := u-boot-rockchip.bin\n"
@@ -785,12 +787,12 @@ class BspScriptsTest(unittest.TestCase):
             result = self.run_bsp("prepare")
             self.assertEqual(result.returncode, 0, result.stdout)
         external = self.output / "br2-external"
-        self.assertEqual((external / "layers/common").resolve(), self.root / "common")
+        self.assertEqual((external / "layers/generic").resolve(), self.root / "generic")
         self.assertEqual((external / "layers/board").resolve(), self.board)
         self.assertEqual((external / "configs/rootfs_defconfig").resolve(),
                          self.board / "configs/rootfs_defconfig")
         self.assertIn("name: DARKOS", (external / "external.desc").read_text())
-        self.assertIn("layers/common/packages/Config.in", (external / "Config.in").read_text())
+        self.assertIn("layers/generic/packages/Config.in", (external / "Config.in").read_text())
         self.assertNotIn("layers/vendor", (external / "Config.in").read_text())
 
     def test_dry_run_does_not_create_output(self):

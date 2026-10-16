@@ -18,7 +18,7 @@ def main():
     logs = root / "output/qemu_arm64_virt/logs"
     logs.mkdir(parents=True, exist_ok=True)
     deadline = time.monotonic() + int(os.environ.get("QEMU_TEST_TIMEOUT", "120"))
-    command = [str(root / "scripts/run-qemu.sh"), *target]
+    command = [str(Path(__file__).resolve().parent / "cmds" / "run.sh"), *target]
     # 2. 复用正式启动脚本，以管道接收串口并向 guest 输入登录和测试命令。
     process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT)

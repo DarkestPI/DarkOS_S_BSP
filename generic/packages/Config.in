@@ -1,0 +1,4 @@
+menu "DarkOS packages"
+source "$BR2_EXTERNAL_DARKOS_PATH/layers/generic/packages/darkos-bsp-info/Config.in"
+source "$BR2_EXTERNAL_DARKOS_PATH/layers/generic/packages/optee-local/Config.in"
+endmenu

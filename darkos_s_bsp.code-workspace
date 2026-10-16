@@ -2,7 +2,7 @@
   "folders": [
     { "path": "boards", "name": "📋 板级层" },
     { "path": "vendors", "name": "🏭 厂商层" },
-    { "path": "common", "name": "🧱 公共层" },
+    { "path": "generic", "name": "🧱 公共层" },
     { "path": "scripts", "name": "🔧 构建脚本" },
     { "path": "sources", "name": "📦 源码" },
     { "path": "ci", "name": "🤖 CI" },
