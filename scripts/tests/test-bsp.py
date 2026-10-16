@@ -112,29 +112,61 @@ class BspScriptsTest(unittest.TestCase):
                                    f"BSP_FRAGMENTS_{component.upper()} :=\n")
                 self.assertEqual(self.collected_paths(component), ([], []))
 
-    def test_config_reports_selected_inputs_without_creating_output(self):
+    def test_config_reports_selected_inputs_and_writes_snapshot(self):
         _, _, fragments = self.make_layers()
         kernel = self.root / "sources/selected-linux"
         uboot = self.root / "sources/selected-u-boot"
         buildroot = self.root / "sources/selected-buildroot"
         firmware = self.root / "firmware/missing-bl31.elf"
+        backend = self.root / "scripts/pack-fixture.sh"
+        backend.write_text(
+            "#!/bin/bash\n"
+            "echo 'fixture 镜像: 256 MiB'\n"
+            "echo 'boot: 4 MiB 起 / 32 MiB；rootfs: 73728 扇区起'\n")
         self.append_config(
             f"BSP_KERNEL_SOURCE_DIR := {kernel}\n"
             f"BSP_UBOOT_SOURCE_DIR := {uboot}\n"
             f"BSP_BUILDROOT_SOURCE_DIR := {buildroot}\n"
             f"BSP_FRAGMENTS_LINUX := {fragments[3]}\n"
-            f"BSP_UBOOT_BL31 := {firmware}\n")
+            f"BSP_UBOOT_BL31 := {firmware}\n"
+            f"BSP_PACK_SCRIPT := {backend}\n")
         result = self.run_bsp("config")
         self.assertEqual(result.returncode, 0, result.stdout)
         for path in (kernel, uboot, buildroot, fragments[3], firmware):
             self.assertIn(str(path), result.stdout)
+        self.assertIn("分区/打包布局:", result.stdout)
+        self.assertIn("boot: 4 MiB 起 / 32 MiB；rootfs: 73728 扇区起", result.stdout)
+        snapshot = self.output / "bsp.config"
+        self.assertTrue(snapshot.is_file(), result.stdout)
+        text = snapshot.read_text()
+        self.assertIn("# 目标: qemu_arm64_test", text)
+        self.assertIn(f"BSP_KERNEL_SOURCE_DIR={kernel}", text)
+        self.assertIn(f"BSP_UBOOT_BL31={firmware}", text)
+        self.assertIn(f"OUTPUT_DIR={self.output}", text)
+        self.assertIn("# 分区/打包布局:", text)
+        self.assertIn("# boot: 4 MiB 起 / 32 MiB；rootfs: 73728 扇区起", text)
+        # 快照按组件分段，段落之间空一行，变量归入对应段落。
+        identity_at = text.index("# 目标与全局\n")
+        uboot_at = text.index("\n\n# U-Boot\n")
+        kernel_at = text.index("\n\n# 内核\n")
+        buildroot_at = text.index("\n\n# Buildroot rootfs\n")
+        self.assertLess(identity_at, uboot_at)
+        self.assertLess(uboot_at, kernel_at)
+        self.assertLess(kernel_at, buildroot_at)
+        self.assertIn(f"BSP_UBOOT_BL31={firmware}", text[uboot_at:kernel_at])
+        self.assertIn(f"BSP_KERNEL_SOURCE_DIR={kernel}", text[kernel_at:buildroot_at])
+        self.assertIn(f"BSP_BUILDROOT_SOURCE_DIR={buildroot}", text[buildroot_at:])
+
+    def test_config_dry_run_skips_snapshot(self):
+        result = self.run_bsp("config", "--dry-run")
+        self.assertEqual(result.returncode, 0, result.stdout)
         self.assertFalse(self.output.exists())
 
     def make_successful_uboot(self, location="sources/u-boot"):
         uboot = self.root / location
         (uboot / "configs").mkdir(parents=True)
         (uboot / "Makefile").write_text(
-            ".PHONY: all fixture_defconfig\n"
+            ".PHONY: all fixture_defconfig olddefconfig\n"
             "all:\n"
             "\t@printf 'BL31=%s\\nROCKCHIP_TPL=%s\\n' '$(BL31)' '$(ROCKCHIP_TPL)' > build-args.txt\n"
             "\t@printf fixture > u-boot.bin\n"
@@ -142,7 +174,8 @@ class BspScriptsTest(unittest.TestCase):
             "\t@printf fixture > idbloader.img\n"
             "\t@printf fixture > u-boot.itb\n"
             "\t@printf fixture > u-boot-rockchip.bin\n"
-            "fixture_defconfig:\n\t@cp configs/fixture_defconfig .config\n")
+            "fixture_defconfig:\n\t@cp configs/fixture_defconfig .config\n"
+            "olddefconfig:\n\t@:\n")
         return uboot
 
     def test_uboot_selects_source_passes_firmware_and_collects_extra_images(self):
@@ -189,9 +222,10 @@ class BspScriptsTest(unittest.TestCase):
         buildroot = self.root / "sources/selected-buildroot"
         buildroot.mkdir(parents=True)
         (buildroot / "Makefile").write_text(
-            ".PHONY: defconfig\n"
+            ".PHONY: defconfig olddefconfig\n"
             "defconfig:\n\t@echo selected-buildroot-source\n"
-            "\t@cp \"$(BR2_DEFCONFIG)\" \"$(O)/.config\"\n")
+            "\t@cp \"$(BR2_DEFCONFIG)\" \"$(O)/.config\"\n"
+            "olddefconfig:\n\t@:\n")
         self.append_config(f"BSP_BUILDROOT_SOURCE_DIR := {buildroot}\n"
                            "BSP_ROOTFS_EXTERNAL_AUTO := n\n")
         result = self.run_bsp("configure")
@@ -257,7 +291,7 @@ class BspScriptsTest(unittest.TestCase):
                 self.assertEqual(result.stdout.strip(),
                                  str(self.root / "sources/environment-source"))
 
-    def test_source_switch_requires_clean_before_reusing_build_copy(self):
+    def test_source_switch_automatically_rebuilds_only_selected_component(self):
         first = self.make_successful_uboot("sources/first-u-boot")
         second = self.make_successful_uboot("sources/second-u-boot")
         (first / "source-marker").write_text("first\n")
@@ -265,17 +299,20 @@ class BspScriptsTest(unittest.TestCase):
         self.append_config(f"BSP_UBOOT_SOURCE_DIR := {first}\n")
         result = self.run_bsp("uboot")
         self.assertEqual(result.returncode, 0, result.stdout)
+        (self.output / "uboot/stale-object.o").write_text("old object")
+        (self.output / "kernel").mkdir()
+        (self.output / "kernel/keep").write_text("other component")
         self.append_config(f"BSP_UBOOT_SOURCE_DIR := {second}\n")
-        result = self.run_bsp("uboot")
+        result = self.run_bsp("uboot", "--incremental")
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertEqual((self.output / "uboot/source-marker").read_text(), "first\n")
-        result = self.run_bsp("clean", "uboot")
-        self.assertEqual(result.returncode, 0, result.stdout)
         result = self.run_bsp("uboot")
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertEqual((self.output / "uboot/source-marker").read_text(), "second\n")
+        self.assertFalse((self.output / "uboot/stale-object.o").exists())
+        self.assertTrue((self.output / "kernel/keep").exists())
 
-    def test_source_commit_change_requires_clean_before_reusing_build_copy(self):
+    def test_source_commit_change_automatically_rebuilds_build_copy(self):
         uboot = self.make_successful_uboot()
         marker = uboot / "source-marker"
         marker.write_text("first\n")
@@ -297,8 +334,145 @@ class BspScriptsTest(unittest.TestCase):
         git("add", "source-marker")
         git("commit", "--quiet", "-m", "fixture source two")
         result = self.run_bsp("uboot")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual((self.output / "uboot/source-marker").read_text(), "second\n")
+
+    def test_source_edits_sync_incrementally_and_full_drops_stale_objects(self):
+        source = self.make_successful_uboot()
+        marker = source / "source-marker"
+        marker.write_text("first\n")
+        result = self.run_bsp("uboot")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        build = self.output / "uboot"
+        stale = build / "retained-object.o"
+        stale.write_text("retained")
+        config = build / ".config"
+        initial_config = config.read_text()
+        marker.write_text("second\n")
+        result = self.run_bsp("uboot", "--incremental")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual((build / "source-marker").read_text(), "second\n")
+        self.assertTrue(stale.exists())
+        self.assertEqual(config.read_text(), initial_config)
+        result = self.run_bsp("uboot", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertFalse(stale.exists())
+
+    def test_config_change_rejects_strict_incremental_then_rebuilds(self):
+        self.make_successful_uboot()
+        result = self.run_bsp("uboot")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        stale = self.output / "uboot/stale-object.o"
+        stale.write_text("old")
+        (self.board / "configs/uboot_defconfig").write_text("CONFIG_ARM=y\nCONFIG_NEW=y\n")
+        result = self.run_bsp("uboot", "--incremental", "--dry-run")
         self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertEqual((self.output / "uboot/source-marker").read_text(), "first\n")
+        self.assertTrue(stale.exists())
+        self.assertNotIn("CONFIG_NEW", (self.output / "uboot/.config").read_text())
+        result = self.run_bsp("uboot")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertFalse(stale.exists())
+        self.assertIn("CONFIG_NEW=y", (self.output / "uboot/.config").read_text())
+
+    def test_patch_change_starts_from_unpatched_source(self):
+        source = self.make_successful_uboot()
+        (source / "source-marker").write_text("original\n")
+        directory = self.board / "patches/uboot"
+        directory.mkdir(parents=True)
+        patch = directory / "001-marker.patch"
+        def write_patch(value):
+            patch.write_text("--- a/source-marker\n+++ b/source-marker\n"
+                             f"@@ -1 +1 @@\n-original\n+{value}\n")
+        write_patch("patched-one")
+        result = self.run_bsp("uboot")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        write_patch("patched-two")
+        result = self.run_bsp("uboot")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual((self.output / "uboot/source-marker").read_text(), "patched-two\n")
+        patch.unlink()
+        result = self.run_bsp("uboot")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual((self.output / "uboot/source-marker").read_text(), "original\n")
+
+    def test_build_options_are_read_only_and_conflicts_fail(self):
+        self.make_successful_uboot()
+        for options, succeeds in ((["--full", "--dry-run"], True),
+                                  (["--dry-run", "--full"], True),
+                                  (["--incremental", "--dry-run"], False),
+                                  (["--full", "--incremental"], False),
+                                  (["--dryrun"], False)):
+            with self.subTest(options=options):
+                result = self.run_bsp("uboot", *options)
+                self.assertEqual(result.returncode == 0, succeeds, result.stdout)
+                self.assertFalse(self.output.exists())
+
+    def make_buildable_rootfs(self):
+        source = self.make_simple_buildroot("sources/buildroot")
+        self.append_config("BSP_ROOTFS_EXTERNAL_AUTO := n\n")
+        makefile = source / "Makefile"
+        makefile.write_text(".DEFAULT_GOAL := all\n" + makefile.read_text() +
+                            "all:\n\t@mkdir -p '$(O)/images' '$(O)/target'\n"
+                            "\t@printf fixture > '$(O)/images/rootfs.cpio'\n")
+        return source
+
+    def test_rootfs_overlay_updates_incrementally_but_deletions_rebuild(self):
+        self.make_buildable_rootfs()
+        overlay = self.board / "rootfs-overlay/etc"
+        overlay.mkdir(parents=True)
+        file = overlay / "fixture"
+        file.write_text("first")
+        result = self.run_bsp("rootfs")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        stale = self.output / "rootfs/target/stale-file"
+        stale.write_text("old installed file")
+        file.write_text("second")
+        result = self.run_bsp("rootfs", "--incremental")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertTrue(stale.exists())
+        file.unlink()
+        result = self.run_bsp("rootfs", "--incremental")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertTrue(stale.exists())
+        result = self.run_bsp("rootfs")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertFalse(stale.exists())
+
+    def test_rootfs_effective_config_change_removes_old_target_files(self):
+        self.make_buildable_rootfs()
+        result = self.run_bsp("rootfs")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        stale = self.output / "rootfs/target/removed-package"
+        stale.write_text("old package")
+        config = self.output / "rootfs/.config"
+        config.write_text(config.read_text() + "BR2_PACKAGE_ADDED=y\n")
+        result = self.run_bsp("rootfs", "--incremental")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertTrue(stale.exists())
+        result = self.run_bsp("rootfs")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertFalse(stale.exists())
+        self.assertIn("BR2_PACKAGE_ADDED=y", config.read_text())
+
+    def test_rootfs_configure_does_not_accept_stale_package_state(self):
+        self.make_buildable_rootfs()
+        result = self.run_bsp("rootfs")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        stale = self.output / "rootfs/target/removed-package"
+        stale.write_text("old")
+        template = self.board / "configs/rootfs_defconfig"
+        template.write_text(template.read_text() + "BR2_PACKAGE_ADDED=y\n")
+        result = self.run_bsp("configure")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        result = self.run_bsp("rootfs")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertFalse(stale.exists())
+
+    def test_configure_dry_run_keeps_action_and_creates_no_output(self):
+        self.make_buildable_rootfs()
+        result = self.run_bsp("configure", "--full", "--dry-run")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertFalse(self.output.exists())
 
     def test_pack_dispatches_selected_backend(self):
         backend = self.root / "scripts/fixture-pack.sh"
@@ -335,27 +509,27 @@ class BspScriptsTest(unittest.TestCase):
                               stderr=subprocess.STDOUT,
                               env={**os.environ, **(env or {})})
 
-    def test_old_uboot_copy_without_source_record_requires_clean(self):
+    def test_old_uboot_copy_without_state_automatically_rebuilds(self):
         self.make_successful_uboot()
         build = self.output / "uboot"
         build.mkdir(parents=True)
         (build / "Makefile").write_text("old build copy\n")
         result = self.run_bsp("uboot")
-        self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertIn("clean", result.stdout)
-        self.assertFalse((build / ".darkos-source").exists())
-        self.assertEqual((build / "Makefile").read_text(), "old build copy\n")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertTrue((build / ".darkos-source").exists())
+        self.assertNotEqual((build / "Makefile").read_text(), "old build copy\n")
 
     def make_simple_buildroot(self, location):
         buildroot = self.root / location
         buildroot.mkdir(parents=True)
         (buildroot / "Makefile").write_text(
-            ".PHONY: defconfig\n"
+            ".PHONY: defconfig olddefconfig\n"
             "defconfig:\n\t@echo selected-buildroot-source\n"
-            "\t@cp \"$(BR2_DEFCONFIG)\" \"$(O)/.config\"\n")
+            "\t@cp \"$(BR2_DEFCONFIG)\" \"$(O)/.config\"\n"
+            "olddefconfig:\n\t@:\n")
         return buildroot
 
-    def test_rootfs_source_switch_requires_clean_before_reusing_output(self):
+    def test_rootfs_source_switch_automatically_reconfigures_output(self):
         first = self.make_simple_buildroot("sources/first-buildroot")
         second = self.make_simple_buildroot("sources/second-buildroot")
         self.append_config("BSP_ROOTFS_EXTERNAL_AUTO := n\n"
@@ -365,16 +539,12 @@ class BspScriptsTest(unittest.TestCase):
         stamp = (self.output / "rootfs/.darkos-source").read_text()
         self.append_config(f"BSP_BUILDROOT_SOURCE_DIR := {second}\n")
         result = self.run_bsp("configure")
-        self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertIn("clean rootfs", result.stdout)
-        self.assertEqual((self.output / "rootfs/.darkos-source").read_text(), stamp)
-        result = self.run_bsp("clean", "rootfs")
         self.assertEqual(result.returncode, 0, result.stdout)
-        result = self.run_bsp("configure")
-        self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertIn(str(second), (self.output / "rootfs/.darkos-source").read_text())
+        current = (self.output / "rootfs/.darkos-source").read_text()
+        self.assertNotEqual(current, stamp)
+        self.assertIn(str(second), current)
 
-    def test_old_rootfs_output_without_source_record_requires_clean(self):
+    def test_old_rootfs_output_without_state_automatically_reconfigures(self):
         buildroot = self.make_simple_buildroot("sources/buildroot")
         self.append_config("BSP_ROOTFS_EXTERNAL_AUTO := n\n"
                            f"BSP_BUILDROOT_SOURCE_DIR := {buildroot}\n")
@@ -382,12 +552,11 @@ class BspScriptsTest(unittest.TestCase):
         build.mkdir(parents=True)
         (build / ".config").write_text("old rootfs config\n")
         result = self.run_bsp("configure")
-        self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertIn("clean rootfs", result.stdout)
-        self.assertFalse((build / ".darkos-source").exists())
-        self.assertEqual((build / ".config").read_text(), "old rootfs config\n")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertTrue((build / ".darkos-source").exists())
+        self.assertIn("BR2_aarch64=y", (build / ".config").read_text())
 
-    def test_rootfs_commit_change_requires_clean_before_reusing_output(self):
+    def test_rootfs_commit_change_automatically_reconfigures_output(self):
         buildroot = self.make_simple_buildroot("sources/buildroot")
 
         def git(*args):
@@ -410,9 +579,8 @@ class BspScriptsTest(unittest.TestCase):
         git("add", "Makefile")
         git("commit", "--quiet", "-m", "fixture Buildroot two")
         result = self.run_bsp("configure")
-        self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertIn("clean rootfs", result.stdout)
-        self.assertEqual((self.output / "rootfs/.darkos-source").read_text(), stamp)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertNotEqual((self.output / "rootfs/.darkos-source").read_text(), stamp)
 
     def test_default_firmware_hash_mismatch_stops_before_build(self):
         self.make_successful_uboot()
@@ -658,8 +826,9 @@ class BspScriptsTest(unittest.TestCase):
         options.parent.mkdir(parents=True)
         options.write_text("config BR2_TOOLCHAIN_EXTERNAL_HEADERS_6_1\n")
         (buildroot / "Makefile").write_text(
-            ".PHONY: defconfig\n"
+            ".PHONY: defconfig olddefconfig\n"
             "defconfig:\n\t@cp \"$(BR2_DEFCONFIG)\" \"$(O)/.config\"\n"
+            "olddefconfig:\n\t@:\n"
         )
         sysroot = self.root / "toolchain/sysroot"
         rpc_header = sysroot / "usr/include/rpc/rpc.h"

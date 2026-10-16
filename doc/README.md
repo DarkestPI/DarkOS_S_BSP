@@ -1,5 +1,10 @@
 # DarkOS S BSP 工程说明
 
+## 设计目标
+
+- 同一底层框架接口
+- 对上层而言，无关底层
+
 本文说明当前工程的组织方式、构建流程、配置约定和操作方法。
 工程根目录的 `build.sh` 是统一入口，目标通过 `vendor / soc / board` 三个参数选择。
 
@@ -144,9 +149,11 @@ pkg-config、OpenSSL 开发库、wget/curl、cpio、unzip、file、bc 等工具�
 ```
 
 脚本根据自身位置定位工程，也可以在其他工作目录使用入口的绝对路径。
-`config` 只读显示继承后的 BSP 值、实际源码路径和提交、补丁/片段及启动
-固件路径，不创建输出目录；它与加载 Buildroot 配置的 `configure` 是不同命令。
-`dry-run` 检查配置和工具链并展示操作，不正式构建、不创建输出目录、不清理文件。
+`config` 显示继承后的 BSP 值、实际源码路径和提交、补丁/片段、启动固件路径
+和分区/打包布局，并把最终变量与布局快照写入 `output/<目标>/bsp.config`
+（变量按 目标与全局/U-Boot/内核/Buildroot/打包与分区/OP-TEE 分段）；
+它与加载 Buildroot 配置的 `configure` 是不同命令。`dry-run` 检查配置和工具链
+并展示操作，不正式构建、不创建输出目录、不清理文件。
 
 QEMU 登录名为 `root`，空密码。按 `Ctrl+A` 后按 `X` 退出模拟器，或在 guest
 中执行 `poweroff`。rootfs 是内存中的 initramfs，关机后修改不会保留。
@@ -174,7 +181,7 @@ QEMU 登录名为 `root`，空密码。按 `Ctrl+A` 后按 `X` 退出模拟器�
 | 命令 | 功能 |
 | --- | --- |
 | `all` | 完整构建并调用目标打包后端 |
-| `config` | 只读显示最终 BSP 配置、实际源码提交、补丁/片段及固件 |
+| `config` | 显示最终 BSP 配置、源码提交及分区/打包布局，生成快照 `output/<目标>/bsp.config` |
 | `prepare` | 只建立 `br2-external` |
 | `configure` | 生成 external 和 Buildroot 配置，可执行工具链能力探测，不正式编译组件 |
 | `uboot` / `kernel` / `rootfs` | 构建单个组件 |

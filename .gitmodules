@@ -14,3 +14,11 @@
 	path = vendors/rockchip/common/rkbin
 	url = https://github.com/rockchip-linux/rkbin.git
 	shallow = true
+[submodule "optee_os"]
+	path = sources/optee_os
+	url = https://github.com/OP-TEE/optee_os.git
+	shallow = true
+[submodule "optee_client"]
+	path = sources/optee_client
+	url = https://github.com/OP-TEE/optee_client.git
+	shallow = true

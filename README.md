@@ -9,6 +9,7 @@ rkbin 位于 `vendors/rockchip/common/rkbin`，供 Rockchip 各目标共享。�
 [工程说明](doc/README.md)、[Git 仓库管理](doc/git-management.md)和
 [源码准备](doc/source.md)。
 
+
 主仓库拉取后，在工程根目录初始化源码及固件：
 
 ```bash
@@ -49,6 +50,115 @@ BusyBox rootfs：
 ./build.sh rockchip rk3588s lubancat-4 all
 ```
 
+三个组件也可独立构建，默认自动判断增量或全量并打印原因：
+
+```bash
+./build.sh rockchip rk3588s lubancat-4 uboot
+./build.sh rockchip rk3588s lubancat-4 kernel
+./build.sh rockchip rk3588s lubancat-4 rootfs
+./build.sh rockchip rk3588s lubancat-4 kernel --full --dry-run
+./build.sh rockchip rk3588s lubancat-4 pack
+```
+
+`--full` 强制所选组件全量，`--incremental` 在输入不兼容时拒绝复用旧输出。
+具体规则、清理范围和脚本职责见 [scripts 说明](scripts/README.md)。
+
 Rockchip 的打包步骤生成普通 SD 镜像文件，不自动向设备烧写。固件版本、分区
 布局和开发步骤见 [LubanCat-4 板级说明](boards/rockchip/rk3588s/lubancat-4/readme.md)。
 原 `rockchip rk3588s evb1` 仍是历史占位目标，不代表 LubanCat-4 的配置或验证结果。
+
+
+
+
+
+
+
+
+
+
+1. 基于 buildroot 工具构建；
+
+2. 可以构建 Uboot、kernel buildroot 构建的文件系统、Ubuntu、Debian、等；
+
+# 构建过程
+
+## step1： 校验配置文件
+
+- 第一阶段：build.sh 入口（scripts/build.sh）
+
+这一步校验bsp.mk，校验流程优先级如下
+
+```text
+boards/qemu/arm64/virt/bsp.mk          （板级）
+  └─ include vendors/qemu/arm64/bsp.mk      （SoC 厂商层）
+       └─ include vendors/qemu/common/bsp.mk   （厂商公共层）
+            └─ include common/bsp.mk              （工程公共层）
+```
+
+公共基础层：common/bsp.mk
+
+soc 厂商 vendors 层：
+
+vendors/<vendor>/<soc>/bsp.mk -> vendors/<vendor>/common/bsp.mk
+
+板级厂商 boards 层：
+
+boards/<vendor>/<soc>/<board>/bsp.mk
+
+
+
+
+
+
+
+
+## Supported Systems
+
+The Buildroot OS cross-compiler can target any Linux-compatible device or virtual machine. These system configuration packages are available in the main SkiffOS repository:
+
+| **System**            | **Config Package**        | **Bootloader**   | **Kernel**      |
+|-----------------------|---------------------------|------------------|-----------------|
+| VirtualBox            | [virt/virtualbox]         | N/A              | ✔ 7.2.10       |
+| [Docker Img]          | [virt/docker]             | N/A              | N/A             |
+| [Qemu]                | [virt/qemu]               | N/A              | ✔ 7.2.10       |
+|-----------------------|---------------------------|------------------|-----------------|
+| [lubancat-4]          | [rk3588s/lubancat-4]      | ✔ U-boot 2022.10 | ✔ sm-6.1-rc3    |
+| [walnutpi_2]          | [t527/walnutpi_2]         | ✔ U-Boot 2025.01 | ✔ 7.2.10       |
+| [BananaPi M1]         | [bananapi/m1]             | ✔ U-Boot 2025.01 | ✔ 7.2.10       |
+
+[lubancat-4]: https://doc.embedfire.com/linux/rk356x/quick_start/zh/latest/quick_start/lubancat/lubancat4.html
+[walnutpi_2]: https://wiki.walnutpi.com/docs/walnutpi_2/
+
+[rk3588s/lubancat-4]: ./boards/rockchip/rk3588s/lubancat-4/
+[t527/walnutpi_2]: ./boards/allwinner/t527/walnutpi_2/
+
+## Getting started
+
+[Buildroot dependencies] must be installed as a prerequisite, assuming apt:
+
+```
+sudo apt-get install -y \
+  bash \
+  bc \
+  binutils \
+  build-essential \
+  bzip2 \
+  cpio \
+  diffutils \
+  file \
+  findutils \
+  git \
+  gzip \
+  libarchive-tools \
+  libncurses-dev \
+  make \
+  patch \
+  perl \
+  rsync \
+  sed \
+  tar \
+  unzip \
+  wget
+```
+
+[Buildroot dependencies]: https://buildroot.org/downloads/manual/manual.html#requirement-mandatory

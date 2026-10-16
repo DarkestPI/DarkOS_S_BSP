@@ -1,0 +1,22 @@
+<mxfile host="65bd71144e">
+    <diagram id="ylYI0LnueS33lPQQFMtZ" name="第 1 页">
+        <mxGraphModel dx="616" dy="458" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="_6PhPaE8lHpTnaC22O1i-1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="平台烧录包" vertex="1">
+                    <mxGeometry height="60" width="810" x="10" y="10" as="geometry"/>
+                </mxCell>
+                <mxCell id="_6PhPaE8lHpTnaC22O1i-2" parent="1" style="rounded=0;whiteSpace=wrap;html=1;align=left;" value="Buidlroot：&lt;br&gt;&lt;br&gt;负责生成文件系统" vertex="1">
+                    <mxGeometry height="60" width="221" x="9" y="170" as="geometry"/>
+                </mxCell>
+                <mxCell id="_6PhPaE8lHpTnaC22O1i-5" parent="1" style="rounded=0;whiteSpace=wrap;html=1;align=left;" value="Kernel：&lt;br&gt;&lt;br&gt;内核驱动" vertex="1">
+                    <mxGeometry height="60" width="221" x="9" y="260" as="geometry"/>
+                </mxCell>
+                <mxCell id="_6PhPaE8lHpTnaC22O1i-6" parent="1" style="rounded=0;whiteSpace=wrap;html=1;align=left;" value="Uboot：&lt;br&gt;&lt;br&gt;负责硬件引导" vertex="1">
+                    <mxGeometry height="60" width="221" x="9" y="350" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

@@ -70,9 +70,24 @@ bsp_source_revision() {
     fi
 }
 
-# config 是只读入口，显示继承后的值和构建实际使用的文件。
+# BSP 变量按名称归入配置快照的分段；冲突时靠前的分段优先。
+bsp_config_section() {
+    case "$1" in
+        BSP_VENDOR|BSP_SOC|BSP_BOARD|BSP_BOARD_NAME|BSP_BOARD_VERSION|BSP_ARCH|BSP_CROSS_COMPILE|BSP_TOOLCHAIN_AUTO|BSP_JOBS|BSP_ROOT)
+            printf '目标与全局' ;;
+        BSP_PACK_SCRIPT|BSP_IMAGE_*|BSP_BOOT_*|BSP_BOOTLOADER_*|BSP_QEMU_*|BSP_KERNEL_CMDLINE|BSP_ROOTFS_PARTUUID)
+            printf '打包与分区' ;;
+        BSP_UBOOT_*) printf 'U-Boot' ;;
+        BSP_KERNEL_*|BSP_DEFCONFIG|BSP_DEFCONFIG_FILE|BSP_DTS_NAME|BSP_DTS_DIR) printf '内核' ;;
+        BSP_BUILDROOT_*|BSP_ROOTFS_*) printf 'Buildroot rootfs' ;;
+        BSP_OPTEE_*) printf 'OP-TEE' ;;
+        *) printf '其他' ;;
+    esac
+}
+
+# config 入口：显示继承后的值和构建实际使用的文件，并把最终变量写入快照。
 bsp_print_config() {
-    local name stage file
+    local name stage file layer layers=""
     echo "配置层: ${LAYERS[*]}"
     while IFS= read -r name; do
         printf '%s=%s\n' "$name" "${!name}"
@@ -90,12 +105,96 @@ bsp_print_config() {
     done
     printf 'BL31=%s\nROCKCHIP_TPL=%s\n' \
         "${BL31:-${BSP_UBOOT_BL31:-}}" "${ROCKCHIP_TPL:-${BSP_UBOOT_TPL:-}}"
+    # 分区/打包布局由目标后端的 dry-run 提供，顺带提前暴露非法分区参数。
+    local backend=${BSP_PACK_SCRIPT:-} layout=""
+    if [ -n "$backend" ]; then
+        [[ "$backend" = /* ]] || backend="$BSP_ROOT/$backend"
+        [ -f "$backend" ] || bsp_die "找不到打包脚本 $backend"
+        layout=$(bash "$backend" "$VENDOR" "$SOC" "$BOARD" --dry-run)
+        echo "分区/打包布局:"
+        printf '%s\n' "$layout"
+    fi
+    # 快照只记录最终变量值，供查阅与目标间对比；源码提交等易变诊断不写入。
+    if [ -z "${DRY_RUN:-}" ]; then
+        for layer in "${LAYERS[@]}"; do layers="${layers:+$layers }${layer#"$BSP_ROOT"/}"; done
+        local section
+        local sections=("目标与全局" "U-Boot" "内核" "Buildroot rootfs" "打包与分区" "OP-TEE" "其他")
+        local -A grouped=()
+        while IFS= read -r name; do
+            section=$(bsp_config_section "$name")
+            grouped[$section]+=" $name"
+        done < <(compgen -A variable BSP_ | sort)
+        mkdir -p "$OUTPUT_DIR"
+        {
+            printf '# DarkOS BSP 配置快照：config 命令生成，勿手工编辑。\n'
+            printf '# 目标: %s\n' "$TARGET"
+            printf '# 层级: %s\n' "$layers"
+            for section in "${sections[@]}"; do
+                [ -n "${grouped[$section]:-}" ] || continue
+                printf '\n# %s\n' "$section"
+                if [ "$section" = 目标与全局 ]; then
+                    printf 'OUTPUT_DIR=%s\n' "$OUTPUT_DIR"
+                fi
+                for name in ${grouped[$section]}; do
+                    printf '%s=%s\n' "$name" "${!name}"
+                done
+                # 环境覆盖后的有效固件路径跟随 U-Boot 段落。
+                [ "$section" != U-Boot ] || printf 'BL31=%s\nROCKCHIP_TPL=%s\n' \
+                    "${BL31:-${BSP_UBOOT_BL31:-}}" "${ROCKCHIP_TPL:-${BSP_UBOOT_TPL:-}}"
+            done
+            [ -z "$layout" ] || { printf '\n# 分区/打包布局:\n'; printf '%s\n' "$layout" | sed 's/^/# /'; }
+        } > "$OUTPUT_DIR/bsp.config"
+        echo "配置快照: ${OUTPUT_DIR#"$BSP_ROOT"/}/bsp.config"
+    fi
 }
 
-# 校验普通组件支持的操作，防止未知动作被当成构建或清理执行。
+# 组件操作和构建策略可以任意顺序出现；未知参数绝不隐式执行清理。
 bsp_action() {
-    ACTION=${1:-build}
-    case "$ACTION" in build|clean|--dry-run) ;; *) bsp_die "不支持的操作 $ACTION" ;; esac
+    ACTION=build; BUILD_POLICY=auto; DRY_RUN=n
+    local option action_seen=n
+    for option in "$@"; do
+        case "$option" in
+            build|clean|configure|menuconfig)
+                [ "$action_seen" = n ] || bsp_die "只能指定一个组件操作"
+                ACTION=$option; action_seen=y ;;
+            --dry-run) DRY_RUN=y ;;
+            --full|--incremental)
+                [ "$BUILD_POLICY" = auto ] || bsp_die "--full 与 --incremental 只能指定一个"
+                BUILD_POLICY=${option#--} ;;
+            *) bsp_die "不支持的操作或选项 $option" ;;
+        esac
+    done
+    [ "$ACTION" != clean ] || [ "$BUILD_POLICY" = auto ] || bsp_die "clean 不接受编译策略"
+}
+
+# 输入快照和状态均由 Python 处理；计划仅保存在 Bash 内存，dry-run 不写 output。
+# --value/--input/--tree 为全量输入，--update-tree/--overlay-tree 支持新增/修改增量。
+bsp_build_plan() {
+    local description
+    BUILD_PLAN_JSON=$(python3 "$BSP_ROOT/scripts/lib/build-state.py" plan "$@" \
+        --policy "${BUILD_POLICY:-auto}") || return 1
+    description=$(printf '%s' "$BUILD_PLAN_JSON" | python3 "$BSP_ROOT/scripts/lib/build-state.py" describe) || return 1
+    BUILD_MODE=${description%%$'\n'*}
+    printf '%s\n' "${description#*$'\n'}"
+}
+
+# 必须在组件清理之后、首次写构建输入之前调用；失败的构建下次自动全量。
+bsp_build_begin() {
+    printf '%s' "$BUILD_PLAN_JSON" | python3 "$BSP_ROOT/scripts/lib/build-state.py" begin
+}
+
+# 只有组件产物全部验证并复制成功后才记录成功输入。
+bsp_build_commit() {
+    printf '%s' "$BUILD_PLAN_JSON" | python3 "$BSP_ROOT/scripts/lib/build-state.py" commit
+}
+
+# 工具链同版本但二进制替换也需要重新编译，避免混用不同编译器的中间产物。
+bsp_toolchain_identity() {
+    local compiler digest
+    compiler=$(command -v "${CROSS_PREFIX}gcc") || bsp_die "找不到 ${CROSS_PREFIX}gcc"
+    compiler=$(realpath "$compiler")
+    digest=$(sha256sum "$compiler")
+    printf '%s|%s|%s\n' "$compiler" "$CROSS_VERSION" "${digest%% *}"
 }
 
 # 优先使用系统依赖；本机验证时下载到 output 的工具可作为隔离后备。
@@ -205,28 +304,13 @@ bsp_collect() {
     done
 }
 
-# 为一个目标准备源码副本：首次 rsync，已有 Makefile 时复用以保留增量构建。
+# 按输入计划同步改动的源码；未改动文件保留 BSP 补丁和构建产物。
 bsp_copy_source() {
     local src=$1 dest=$2
-    local stamp
-    [ -d "$src" ] || bsp_die "找不到源码 $src"
-    stamp=$(printf '%s\n%s\n' "$(realpath "$src")" "$(bsp_source_revision "$src")")
-    if [ -f "$dest/Makefile" ]; then
-        [ -f "$dest/.darkos-source" ] || bsp_die "旧构建副本没有源码记录，请先 clean 对应组件: $dest"
-        if [ -f "$dest/.darkos-source" ] && [ "$(cat "$dest/.darkos-source")" != "$stamp" ]; then
-            bsp_die "源码路径或提交已变化，请先 clean 对应组件: $dest"
-        fi
-        printf '%s\n' "$stamp" > "$dest/.darkos-source"
-        echo "复用构建目录: ${dest#"$BSP_ROOT"/}（更新源码或补丁后请 clean）"
-        return
-    fi
-    mkdir -p "$dest"
-    # 不复制 Git 数据、原目录 .config 及常见编译中间文件。
-    # 后续补丁和板级文件只写入这个副本。
-    rsync -a --exclude=.git --exclude=.config --exclude='*.o' --exclude='*.a' \
-        --exclude='*.ko' --exclude='*.mod' --exclude='*.cmd' --exclude='*.tmp' \
-        --exclude=modules.order --exclude=Module.symvers "$src/" "$dest/"
-    printf '%s\n' "$stamp" > "$dest/.darkos-source"
+    [ -n "${BUILD_PLAN_JSON:-}" ] || bsp_die "复制源码前必须先调用 bsp_build_plan"
+    [ "$(realpath -m "$src")" = "$SOURCE_DIR" ] || bsp_die "源码计划与同步目录不一致"
+    [ "$(realpath -m "$dest")" = "$BUILD_DIR" ] || bsp_die "构建计划与同步目录不一致"
+    printf '%s' "$BUILD_PLAN_JSON" | python3 "$BSP_ROOT/scripts/lib/build-state.py" copy-source
 }
 
 # Buildroot 使用共享源码和 O=；版本变化同样需要清理旧 package stamp。

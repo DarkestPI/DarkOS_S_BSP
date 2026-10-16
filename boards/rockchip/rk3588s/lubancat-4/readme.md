@@ -66,3 +66,14 @@ boot 分区包含 `Image`、`rk3588s-lubancat-4.dtb` 和 `extlinux/extlinux.conf
 5. 到达终端后检查 `dmesg`、`mount`、`ip link`、`/sys/class/thermal/`，记录芯片/DDR/PHY 信息及启动日志，再验证网口和外围设备。
 
 默认根文件系统为开发用串口登录环境，未配置 root 密码或 SSH 服务。现有 eMMC/SPI 启动固件可能改变 BootROM 启动介质选择；遇到无法从 SD 启动时，先按板厂文档核对启动优先级和恢复流程。
+
+
+```bash
+./build.sh rockchip rk3588s lubancat-4 kernel      # 只编内核
+./build.sh rockchip rk3588s lubancat-4 uboot       # 只编 U-Boot
+./build.sh rockchip rk3588s lubancat-4 rootfs      # 只编 rootfs
+./build.sh rockchip rk3588s lubancat-4 pack        # 只重新打包镜像
+./build.sh rockchip rk3588s lubancat-4 clean all   # 清理后全量重建（保留下载缓存）
+JOBS=16 ./build.sh rockchip rk3588s lubancat-4 all # 提高并行数（板级默认 4）
+
+```

@@ -1,0 +1,1 @@
+# Rockchip 厂商层 U-Boot 片段：各 SoC/板卡共用选项；芯片差异在 SoC 层 uboot.fragment。

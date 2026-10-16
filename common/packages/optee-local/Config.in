@@ -1,0 +1,13 @@
+config BR2_PACKAGE_DARKOS_OPTEE_CLIENT_SERVICE
+	bool "OP-TEE supplicant device-aware startup"
+	depends on BR2_PACKAGE_OPTEE_CLIENT
+	depends on BR2_INIT_BUSYBOX || BR2_INIT_SYSV
+	default y
+	help
+	  Use the native Buildroot optee-client package and replace its
+	  SysV startup script with a device-aware script. It starts
+	  tee-supplicant only when /dev/teepriv0 is present.
+
+	  The OP-TEE trusted OS, secure monitor and device tree must
+	  already be configured by the platform firmware. This option
+	  does not load OP-TEE or enable secure boot.

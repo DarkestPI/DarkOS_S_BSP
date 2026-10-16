@@ -1,0 +1,38 @@
+#!/bin/sh
+# tee-supplicant 为安全世界提供普通世界的 RPC 服务；设备缺失时跳过启动。
+
+DAEMON="tee-supplicant"
+DAEMON_PATH="/usr/sbin/$DAEMON"
+PIDFILE="/var/run/$DAEMON.pid"
+DEVICE="/dev/teepriv0"
+
+start() {
+	if [ ! -c "$DEVICE" ]; then
+		printf 'Skipping %s: %s is unavailable\n' "$DAEMON" "$DEVICE"
+		return 0
+	fi
+	if [ ! -x "$DAEMON_PATH" ]; then
+		printf 'Starting %s: FAIL (missing %s)\n' "$DAEMON" "$DAEMON_PATH"
+		return 1
+	fi
+	printf 'Starting %s: ' "$DAEMON"
+	start-stop-daemon -S -q -p "$PIDFILE" -x "$DAEMON_PATH" -- -d "$DEVICE"
+	status=$?
+	if [ "$status" -eq 0 ]; then echo "OK"; else echo "FAIL"; fi
+	return "$status"
+}
+
+stop() {
+	[ -f "$PIDFILE" ] || return 0
+	printf 'Stopping %s: ' "$DAEMON"
+	start-stop-daemon -K -q -p "$PIDFILE"
+	status=$?
+	if [ "$status" -eq 0 ]; then echo "OK"; else echo "FAIL"; fi
+	return "$status"
+}
+
+case "${1:-}" in
+	start|stop) "$1" ;;
+	restart|reload) stop && sleep 1 && start ;;
+	*) echo "Usage: $0 {start|stop|restart|reload}"; exit 1 ;;
+esac

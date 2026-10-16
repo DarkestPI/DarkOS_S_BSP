@@ -1,0 +1,3 @@
+# <board> 板级内核片段：仅本板需要的驱动选项（供电/PHY/RTC 等设备树对应项）。
+# 通用选项依次在 common/vendor/soc 片段维护，此处只写板级差异。
+CONFIG_LOCALVERSION="-darkos-<board>"

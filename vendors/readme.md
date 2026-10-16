@@ -19,7 +19,7 @@ QEMU 的第二层标识 `arm64` 是架构，`virt` 是机器。Rockchip 的 `rk3
 是芯片，`lubancat-4` 是实际板卡。能力由内核/Buildroot 配置和硬件验证决定，
 单独设置描述用 `BSP_FEATURE_*` 不会启用驱动或安装软件包。
 
-可通过只读命令核对最终选择：
+可通过 config 命令核对最终选择，并在 `output/<目标>/bsp.config` 生成快照：
 
 ```bash
 ./build.sh qemu arm64 virt config
@@ -57,3 +57,19 @@ QEMU 的第二层标识 `arm64` 是架构，`virt` 是机器。Rockchip 的 `rk3
 预留厂商目录，尚未接通完整板级目标。
 
 - [官网](https://www.visinextek.com/)
+
+## Hisilicon 海思
+
+预留厂商目录，尚未接通完整板级目标。
+
+## Ingenic 君正
+
+预留厂商目录，尚未接通完整板级目标。
+
+## Fullhan 富瀚微
+
+预留厂商目录，尚未接通完整板级目标。
+
+## TI 德州仪器
+
+## NXP 恩智浦

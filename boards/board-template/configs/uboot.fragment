@@ -1,0 +1,4 @@
+# <board> 板级 U-Boot 片段：仅本板需要的选项；共用选项在上层 uboot.fragment。
+# 使用本板独立设备树时通常还需要（按实际路径改写）：
+# CONFIG_DEFAULT_DEVICE_TREE="<soc>-<board>"
+# CONFIG_DEFAULT_FDT_FILE="<vendor>/<soc>-<board>.dtb"

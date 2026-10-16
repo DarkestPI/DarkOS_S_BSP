@@ -1,14 +1,14 @@
 {
   "folders": [
-    { "path": ".", "name": "🏠 BSP 根目录" },
-    { "path": "sources", "name": "📦 源码" },
-    { "path": "common", "name": "🧱 公共层" },
-    { "path": "vendors", "name": "🏭 厂商层" },
     { "path": "boards", "name": "📋 板级层" },
-    { "path": "scripts", "name": "🔧 脚本" },
+    { "path": "vendors", "name": "🏭 厂商层" },
+    { "path": "common", "name": "🧱 公共层" },
+    { "path": "scripts", "name": "🔧 构建脚本" },
+    { "path": "sources", "name": "📦 源码" },
     { "path": "ci", "name": "🤖 CI" },
     { "path": "doc", "name": "📚 文档" },
-    { "path": "output", "name": "📦 构建产物" }   
+    { "path": ".", "name": "🏠 BSP 根目录" },
+    { "path": "output", "name": "📦 构建产物" }
   ],
   "settings": {
     // 禁用自动构建系统检测
